@@ -55,7 +55,7 @@ public class MultiplexedJournal implements Journal {
     }
 
     public void open() throws IOException {
-        synchronized (executor) {
+        synchronized (this) {
             if (executor.isShutdown())
                 executor = Executors.newFixedThreadPool(2);
         }
