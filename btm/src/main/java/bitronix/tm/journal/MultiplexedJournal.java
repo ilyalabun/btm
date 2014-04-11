@@ -42,6 +42,14 @@ public class MultiplexedJournal implements Journal {
         this.secondary = secondary;
     }
 
+    /**
+     * Log simultaneously to both journals.
+     *
+     * @param status transaction status to log.
+     * @param gtrid GTRID of the transaction.
+     * @param uniqueNames unique names of the RecoverableXAResourceProducers participating in the transaction.
+     * @throws IOException
+     */
     public void log(final int status, final Uid gtrid, final Set<String> uniqueNames) throws IOException {
         executeInParallel(new VoidParallelJournalTask() {
             public void voidDoWithPrimary() throws IOException {
@@ -54,6 +62,11 @@ public class MultiplexedJournal implements Journal {
         });
     }
 
+    /**
+     * Open journals in parallel.
+     *
+     * @throws IOException
+     */
     public void open() throws IOException {
         synchronized (this) {
             if (executor.isShutdown())
@@ -72,6 +85,11 @@ public class MultiplexedJournal implements Journal {
          });
     }
 
+    /**
+     * Close both journals in parallel.
+     *
+     * @throws IOException
+     */
     public synchronized void close() throws IOException {
         if (executor.isShutdown()) {
             return;
@@ -90,6 +108,9 @@ public class MultiplexedJournal implements Journal {
         });
     }
 
+    /**
+     * Shutdown both journals, then shutdown thread pool.
+     */
     public synchronized void shutdown() {
         if (executor.isShutdown())
             return;
@@ -117,16 +138,11 @@ public class MultiplexedJournal implements Journal {
         }
     }
 
-    private void shutdownExecutor() throws IOException {
-        executor.shutdown();
-        try {
-            executor.awaitTermination(20, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("Executor shutdown terminated", e);
-        }
-    }
-
+    /**
+     * Forces both journals in parallel.
+     *
+     * @throws IOException
+     */
     public void force() throws IOException {
         executeInParallel(new VoidParallelJournalTask() {
              public void voidDoWithPrimary() throws IOException {
@@ -143,6 +159,12 @@ public class MultiplexedJournal implements Journal {
         return collectAllRecords().getDanglingRecords();
     }
 
+    /**
+     * Collects all records from journals. Records are divided into committed and dangling.
+     *
+     * @return all records from both journals.
+     * @throws IOException
+     */
     public JournalRecords collectAllRecords() throws IOException {
         final ExecutionResult<JournalRecords> executionResults = executeInParallelDontThrow(new ParallelJournalTask<JournalRecords>() {
             public JournalRecords doWithPrimary() throws IOException {
@@ -181,6 +203,14 @@ public class MultiplexedJournal implements Journal {
         return mergeResults(primaryResult, secondaryResult);
     }
 
+    /**
+     * Merges records from primary and secondary journals. Handles situation when record is present in one journal and
+     * absent in another.
+     *
+     * @param primaryResults records from primary journal.
+     * @param secondaryResults records form secondary journal.
+     * @return merged records.
+     */
     private JournalRecords mergeResults(JournalRecords primaryResults, JournalRecords secondaryResults) {
         Map<Uid, JournalRecord> committedRecords = new HashMap<Uid, JournalRecord>();
         committedRecords.putAll(primaryResults.getCommittedRecords());
@@ -193,9 +223,19 @@ public class MultiplexedJournal implements Journal {
         return new JournalRecords(danglingRecords, committedRecords);
     }
 
+    private void shutdownExecutor() throws IOException {
+        executor.shutdown();
+        try {
+            executor.awaitTermination(20, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Executor shutdown terminated", e);
+        }
+    }
+
     /**
      * Matches dangling records from journal A with committed records from journal B
-     * and removes form dangling records those which are already committed.
+     * and removes from dangling records those which are already committed.
      *
      * @param journalADangling dangling records from journal A
      * @param journalBCommitted committed records from journal B
@@ -232,7 +272,6 @@ public class MultiplexedJournal implements Journal {
         return sw.toString();
     }
 
-
     private void throwIfUnchecked(Throwable t) {
         if (t instanceof RuntimeException)
             throw (RuntimeException)t;
@@ -241,6 +280,14 @@ public class MultiplexedJournal implements Journal {
             throw (Error)t;
     }
 
+    /**
+     * Executes task for both journals in parallel.
+     *
+     * @param task task to execute in parallel.
+     * @param <T> type of returned result.
+     * @return <code>ExecutionResult</code> object which contains execution.
+     * @throws IOException in case of failure.
+     */
     private <T> ExecutionResult<T> executeInParallel(final ParallelJournalTask<T> task) throws IOException {
         final Future<T> primaryFuture = submitPrimary(task);
         final Future<T> secondaryFuture = submitSecondary(task);
@@ -258,6 +305,14 @@ public class MultiplexedJournal implements Journal {
         return null;
     }
 
+    /**
+     * Executes task for both journals in parallel. All exceptions are caught and saved into <code>ExecutionResult</code>.
+     *
+     * @param task task to execute.
+     * @param <T> type of
+     * @return
+     * @throws IOException
+     */
     private <T> ExecutionResult<T> executeInParallelDontThrow(final ParallelJournalTask<T> task) throws IOException {
         ExecutionResult<T> result = new ExecutionResult<T>();
         final Future<T> primaryFuture = submitPrimary(task);
@@ -302,8 +357,6 @@ public class MultiplexedJournal implements Journal {
                 }
             });
     }
-
-
 
     private void launderThrowable(ExecutionException e) throws IOException {
         final Throwable cause = e.getCause();
