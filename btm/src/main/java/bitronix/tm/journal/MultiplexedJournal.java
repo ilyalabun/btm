@@ -3,7 +3,6 @@ package bitronix.tm.journal;
 import bitronix.tm.utils.Uid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -52,12 +51,8 @@ public class MultiplexedJournal implements Journal {
      */
     public void log(final int status, final Uid gtrid, final Set<String> uniqueNames) throws IOException {
         executeInParallel(new VoidParallelJournalTask() {
-            public void voidDoWithPrimary() throws IOException {
-                primary.log(status, gtrid, uniqueNames);
-            }
-
-            public void voidDoWithSecondary() throws IOException {
-                secondary.log(status, gtrid, uniqueNames);
+            protected void voidExec(Journal journal) throws IOException {
+                journal.log(status, gtrid, uniqueNames);
             }
         });
     }
@@ -75,14 +70,10 @@ public class MultiplexedJournal implements Journal {
 
 
         executeInParallel(new VoidParallelJournalTask() {
-             public void voidDoWithPrimary() throws IOException {
-                 primary.open();
-             }
-
-             public void voidDoWithSecondary() throws IOException {
-                 secondary.open();
-             }
-         });
+            protected void voidExec(Journal journal) throws IOException {
+                journal.open();
+            }
+        });
     }
 
     /**
@@ -96,14 +87,8 @@ public class MultiplexedJournal implements Journal {
         }
 
         executeInParallel(new VoidParallelJournalTask() {
-            @Override
-            protected void voidDoWithPrimary() throws IOException {
-                primary.close();
-            }
-
-            @Override
-            protected void voidDoWithSecondary() throws IOException {
-                secondary.close();
+            protected void voidExec(Journal journal) throws IOException {
+                journal.close();
             }
         });
     }
@@ -117,14 +102,8 @@ public class MultiplexedJournal implements Journal {
 
         try {
             executeInParallel(new VoidParallelJournalTask() {
-                @Override
-                protected void voidDoWithPrimary() throws IOException {
-                    primary.shutdown();
-                }
-
-                @Override
-                protected void voidDoWithSecondary() throws IOException {
-                    secondary.shutdown();
+                protected void voidExec(Journal journal) throws IOException {
+                    journal.shutdown();
                 }
             });
         } catch (IOException e) {
@@ -145,14 +124,10 @@ public class MultiplexedJournal implements Journal {
      */
     public void force() throws IOException {
         executeInParallel(new VoidParallelJournalTask() {
-             public void voidDoWithPrimary() throws IOException {
-                 primary.force();
-             }
-
-             public void voidDoWithSecondary() throws IOException {
-                 secondary.force();
-             }
-         });
+            protected void voidExec(Journal journal) throws IOException {
+                journal.force();
+            }
+        });
     }
 
     public Map<Uid, JournalRecord> collectDanglingRecords() throws IOException {
@@ -167,12 +142,8 @@ public class MultiplexedJournal implements Journal {
      */
     public JournalRecords collectAllRecords() throws IOException {
         final ExecutionResult<JournalRecords> executionResults = executeInParallelDontThrow(new ParallelJournalTask<JournalRecords>() {
-            public JournalRecords doWithPrimary() throws IOException {
-                return primary.collectAllRecords();
-            }
-
-            public JournalRecords doWithSecondary() throws IOException {
-                return secondary.collectAllRecords();
+            public JournalRecords exec(Journal journal) throws IOException {
+                return journal.collectAllRecords();
             }
         });
 
@@ -289,8 +260,8 @@ public class MultiplexedJournal implements Journal {
      * @throws IOException in case of failure.
      */
     private <T> ExecutionResult<T> executeInParallel(final ParallelJournalTask<T> task) throws IOException {
-        final Future<T> primaryFuture = submitPrimary(task);
-        final Future<T> secondaryFuture = submitSecondary(task);
+        final Future<T> primaryFuture = submitTask(task, primary);
+        final Future<T> secondaryFuture = submitTask(task, secondary);
 
         try {
             return new ExecutionResult<T>(primaryFuture.get(), secondaryFuture.get());
@@ -315,8 +286,8 @@ public class MultiplexedJournal implements Journal {
      */
     private <T> ExecutionResult<T> executeInParallelDontThrow(final ParallelJournalTask<T> task) throws IOException {
         ExecutionResult<T> result = new ExecutionResult<T>();
-        final Future<T> primaryFuture = submitPrimary(task);
-        final Future<T> secondaryFuture = submitSecondary(task);
+        final Future<T> primaryFuture = submitTask(task, primary);
+        final Future<T> secondaryFuture = submitTask(task, secondary);
 
         try {
             final T primaryResult = primaryFuture.get();
@@ -342,18 +313,10 @@ public class MultiplexedJournal implements Journal {
     }
 
 
-    private <T> Future<T> submitPrimary(final ParallelJournalTask<T> task) {
+    private <T> Future<T> submitTask(final ParallelJournalTask<T> task, final Journal journal) {
         return executor.submit(new Callable<T>() {
                 public T call() throws Exception {
-                    return task.doWithPrimary();
-                }
-            });
-    }
-
-    private <T> Future<T> submitSecondary(final ParallelJournalTask<T> task) {
-        return executor.submit(new Callable<T>() {
-                public T call() throws Exception {
-                    return task.doWithSecondary();
+                    return task.exec(journal);
                 }
             });
     }
@@ -370,24 +333,16 @@ public class MultiplexedJournal implements Journal {
 
 
     private interface ParallelJournalTask<T> {
-        T doWithPrimary() throws IOException;
-
-        T doWithSecondary() throws IOException;
+        T exec(Journal journal) throws IOException;
     }
 
     private abstract static class VoidParallelJournalTask implements ParallelJournalTask<Void> {
-        public Void doWithPrimary() throws IOException {
-            voidDoWithPrimary();
+        public Void exec(Journal journal) throws IOException {
+            voidExec(journal);
             return null;
         }
 
-        public Void doWithSecondary() throws IOException {
-            voidDoWithSecondary();
-            return null;
-        }
-
-        protected abstract void voidDoWithPrimary() throws IOException;
-        protected abstract void voidDoWithSecondary() throws IOException;
+        protected abstract void voidExec(Journal journal) throws IOException;;
     }
 
     private final static class ExecutionResult<T> {
