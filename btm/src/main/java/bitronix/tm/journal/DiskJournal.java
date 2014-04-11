@@ -17,6 +17,7 @@ package bitronix.tm.journal;
 
 import bitronix.tm.BitronixXid;
 import bitronix.tm.Configuration;
+import bitronix.tm.DiskJournalConfiguration;
 import bitronix.tm.TransactionManagerServices;
 import bitronix.tm.utils.Decoder;
 import bitronix.tm.utils.MonotonicClock;
@@ -82,15 +83,25 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
 	private final Object positionLock = new Object();
 	private final AtomicBoolean needsForce;
 
-	private final Configuration configuration;
+    private final Configuration configuration;
+
+	private final DiskJournalConfiguration diskConfiguration;
 
     /**
      * Create an uninitialized disk journal. You must call open() prior you can use it.
      */
     public DiskJournal() {
-    	configuration = TransactionManagerServices.getConfiguration();
+        configuration = TransactionManagerServices.getConfiguration();
+    	diskConfiguration = TransactionManagerServices.getConfiguration().getDiskConfiguration();
     	needsForce = new AtomicBoolean();
     	activeTla = new AtomicReference<TransactionLogAppender>();
+    }
+
+    public DiskJournal(DiskJournalConfiguration diskConfiguration) {
+        this.configuration = TransactionManagerServices.getConfiguration();
+        this.needsForce = new AtomicBoolean();
+        this.activeTla = new AtomicReference<TransactionLogAppender>();
+        this.diskConfiguration = diskConfiguration;
     }
 
     /**
@@ -107,7 +118,7 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
         if (activeTla.get() == null)
             throw new IOException("cannot write log, disk logger is not open");
 
-        if (configuration.isFilterLogStatus()) {
+        if (diskConfiguration.isFilterLogStatus()) {
             if (status != Status.STATUS_COMMITTING && status != Status.STATUS_COMMITTED && status != Status.STATUS_UNKNOWN) {
                 if (log.isDebugEnabled()) { log.debug("filtered out write to log for status " + Decoder.decodeStatus(status)); }
                 return;
@@ -163,7 +174,7 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
         if (activeTla.get() == null)
             throw new IOException("cannot force log writing, disk logger is not open");
 
-        if (needsForce.get() && configuration.isForcedWriteEnabled()) {
+        if (needsForce.get() && diskConfiguration.isForcedWriteEnabled()) {
 	        swapForceLock.writeLock().lock();
 	        try {
 	        	activeTla.get().force();
@@ -187,12 +198,12 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
             return;
         }
 
-        File file1 = new File(configuration.getLogPart1Filename());
-        File file2 = new File(configuration.getLogPart2Filename());
+        File file1 = new File(diskConfiguration.getLogPart1Filename());
+        File file2 = new File(diskConfiguration.getLogPart2Filename());
 
         if (!file1.exists() && !file2.exists()) {
             log.debug("creation of log files");
-            createLogfile(file2, configuration.getMaxLogSizeInMb());
+            createLogfile(file2, diskConfiguration.getMaxLogSizeInMb());
 
             // make the clock run a little before creating the 2nd log file to ensure the timestamp headers are not the same
             long before = MonotonicClock.currentTimeMillis();
@@ -200,11 +211,11 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
                 try { Thread.sleep(100); } catch (InterruptedException ex) { /* ignore */ }
             }
 
-            createLogfile(file1, configuration.getMaxLogSizeInMb());
+            createLogfile(file1, diskConfiguration.getMaxLogSizeInMb());
         }
 
         if (file1.length() != file2.length()) {
-            if (!configuration.isSkipCorruptedLogs())
+            if (!diskConfiguration.isSkipCorruptedLogs())
                 throw new IOException("transaction log files are not of the same length, assuming they're corrupt");
             log.error("transaction log files are not of the same length: corrupted files?");
         }
@@ -267,7 +278,17 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
     public Map<Uid, JournalRecord> collectDanglingRecords() throws IOException {
         if (activeTla.get() == null)
             throw new IOException("cannot collect dangling records, disk logger is not open");
-        return collectDanglingRecords(activeTla.get());
+        return collectAllRecords(activeTla.get(), diskConfiguration).getDanglingRecords();
+    }
+
+    /**
+     * Collects all records from active log file.
+     *
+     * @return all journal re
+     * @throws IOException
+     */
+    public JournalRecords collectAllRecords() throws IOException {
+        return collectAllRecords(activeTla.get(), diskConfiguration);
     }
 
     /**
@@ -292,8 +313,13 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
         if (activeTla.get() == null)
             throw new IOException("cannot read records, disk logger is not open");
 
-        for (Iterator<TransactionLogRecord> i = iterateRecords(activeTla.get(), includeInvalid); i.hasNext(); )
+        for (Iterator<TransactionLogRecord> i = iterateRecords(activeTla.get(), includeInvalid, diskConfiguration); i.hasNext(); )
             target.add(i.next());
+    }
+
+    public String toString() {
+        return String.format("Disk journal. Part1 file: %s. Part2 file: %s",
+                diskConfiguration.getLogPart1Filename(), diskConfiguration.getLogPart2Filename());
     }
 
     /*
@@ -422,16 +448,8 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
         return (tla1 == activeTla.get() ? tla2 : tla1);
     }
 
-    /**
-     * Create a Map of TransactionLogRecord with COMMITTING status objects using the GTRID byte[] as key that have
-     * no corresponding COMMITTED record
-     *
-     * @param tla the TransactionLogAppender to scan
-     * @return a Map using Uid objects GTRID as key and {@link TransactionLogRecord} as value
-     * @throws java.io.IOException in case of disk IO failure.
-     */
-    private static Map<Uid, JournalRecord> collectDanglingRecords(TransactionLogAppender tla) throws IOException {
-        Map<Uid, JournalRecord> danglingRecords = new HashMap<Uid, JournalRecord>(64);
+    private static JournalRecords collectAllRecords(TransactionLogAppender tla, DiskJournalConfiguration diskJournalConfiguration) throws IOException {
+        JournalRecords records = new JournalRecords();
         TransactionLogCursor tlc = tla.getCursor();
 
         try {
@@ -443,7 +461,7 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
                 try {
                     tlog = tlc.readLog();
                 } catch (CorruptedTransactionLogException ex) {
-                    if (TransactionManagerServices.getConfiguration().isSkipCorruptedLogs()) {
+                    if (diskJournalConfiguration.isSkipCorruptedLogs()) {
                         log.error("skipping corrupted log", ex);
                         continue;
                     }
@@ -455,7 +473,7 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
 
                 int status = tlog.getStatus();
                 if (status == Status.STATUS_COMMITTING) {
-                    danglingRecords.put(tlog.getGtrid(), tlog);
+                    records.addDanglingRecord(tlog);
                     committing++;
                 }
 
@@ -463,26 +481,28 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
                 // UNKNOWN is when a 2PC transaction heuristically terminated
                 // ROLLEDBACK is when a 1PC transaction rolled back during commit
                 if (status == Status.STATUS_COMMITTED || status == Status.STATUS_UNKNOWN || status == Status.STATUS_ROLLEDBACK) {
-                    JournalRecord rec = danglingRecords.get(tlog.getGtrid());
+                    JournalRecord rec = records.getDanglingRecord(tlog.getGtrid());
                     if (rec != null) {
                         Set<String> recUniqueNames = new HashSet<String>(rec.getUniqueNames());
                         recUniqueNames.removeAll(tlog.getUniqueNames());
                         if (recUniqueNames.isEmpty()) {
-                            danglingRecords.remove(tlog.getGtrid());
+                            records.removeDanglingRecord(tlog.getGtrid());
                             committed++;
                         } else {
-                            danglingRecords.put(tlog.getGtrid(), new TransactionLogRecord(rec.getStatus(), rec.getGtrid(), recUniqueNames));
+                            records.addDanglingRecord(new TransactionLogRecord(rec.getStatus(), rec.getGtrid(), recUniqueNames));
                         }
                     }
+                    records.addComittedRecord(tlog);
                 }
             }
 
-            if (log.isDebugEnabled()) { log.debug("collected dangling records of " + tla + ", committing: " + committing + ", committed: " + committed + ", delta: " + danglingRecords.size()); }
+            if (log.isDebugEnabled()) { log.debug("collected dangling records of " + tla +
+                    ", committing: " + committing + ", committed: " + committed + ", delta: " + records.getDanglingRecords().size()); }
         }
         finally {
             tlc.close();
         }
-        return danglingRecords;
+        return records;
     }
 
     /**
@@ -493,7 +513,8 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
      * @return an iterator over all contained log records.
      * @throws java.io.IOException in case of the initial disk IO failed (subsequent errors are unchecked exceptions).
      */
-    private static Iterator<TransactionLogRecord> iterateRecords(TransactionLogAppender tla, final boolean skipCrcCheck) throws IOException {
+    private static Iterator<TransactionLogRecord> iterateRecords(TransactionLogAppender tla, final boolean skipCrcCheck,
+                                                                 final DiskJournalConfiguration diskJournalConfiguration) throws IOException {
         final TransactionLogCursor tlc = tla.getCursor();
         final Iterator<TransactionLogRecord> it = new Iterator<TransactionLogRecord>() {
             TransactionLogRecord tlog;
@@ -506,7 +527,7 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
                             if (tlog == null)
                                 break;
                         } catch (CorruptedTransactionLogException ex) {
-                            if (TransactionManagerServices.getConfiguration().isSkipCorruptedLogs()) {
+                            if (diskJournalConfiguration.isSkipCorruptedLogs()) {
                                 log.error("skipping corrupted log", ex);
                                 continue;
                             }

@@ -15,6 +15,7 @@
  */
 package bitronix.tm;
 
+import bitronix.tm.utils.ConfigurationUtils;
 import junit.framework.TestCase;
 
 import java.util.Properties;
@@ -40,31 +41,31 @@ public class ConfigurationTest extends TestCase {
         props.setProperty("17", "x$");
         props.setProperty("18", "x${");
 
-        assertEquals("one", Configuration.getString(props, "1", null));
-        assertEquals("two", Configuration.getString(props, "2", null));
-        assertEquals("three", Configuration.getString(props, "3", null));
-        assertEquals("one two", Configuration.getString(props, "12", null));
-        assertEquals("one three", Configuration.getString(props, "13", null));
-        assertEquals("one four-sys", Configuration.getString(props, "16", null));
+        assertEquals("one", ConfigurationUtils.getString(props, "1", null));
+        assertEquals("two", ConfigurationUtils.getString(props, "2", null));
+        assertEquals("three", ConfigurationUtils.getString(props, "3", null));
+        assertEquals("one two", ConfigurationUtils.getString(props, "12", null));
+        assertEquals("one three", ConfigurationUtils.getString(props, "13", null));
+        assertEquals("one four-sys", ConfigurationUtils.getString(props, "16", null));
 
         try {
-            Configuration.getString(props, "14", null);
+            ConfigurationUtils.getString(props, "14", null);
             fail("expected IllegalArgumentException: property ref cannot refer to an empty name: ${}");
         } catch (IllegalArgumentException ex) {
             assertEquals("property ref cannot refer to an empty name: ${}", ex.getMessage());
         }
 
         try {
-            Configuration.getString(props, "15", null);
+            ConfigurationUtils.getString(props, "15", null);
             fail("expected IllegalArgumentException: unclosed property ref: ${tatata");
         } catch (IllegalArgumentException ex) {
             assertEquals("unclosed property ref: ${tatata", ex.getMessage());
         }
 
-        assertEquals("x$", Configuration.getString(props, "17", null));
+        assertEquals("x$", ConfigurationUtils.getString(props, "17", null));
 
         try {
-            Configuration.getString(props, "18", null);
+            ConfigurationUtils.getString(props, "18", null);
             fail("expected IllegalArgumentException: unclosed property ref: ${");
         } catch (IllegalArgumentException ex) {
             assertEquals("unclosed property ref: ${", ex.getMessage());
@@ -79,26 +80,35 @@ public class ConfigurationTest extends TestCase {
         System.setProperty("vrai", "true");
         props.setProperty("faux", "false");
 
-        assertEquals(1, Configuration.getInt(props, "one", -1));
-        assertEquals(2, Configuration.getInt(props, "two", -1));
-        assertEquals(3, Configuration.getInt(props, "three", -1));
-        assertEquals(10, Configuration.getInt(props, "ten", 10));
+        assertEquals(1, ConfigurationUtils.getInt(props, "one", -1));
+        assertEquals(2, ConfigurationUtils.getInt(props, "two", -1));
+        assertEquals(3, ConfigurationUtils.getInt(props, "three", -1));
+        assertEquals(10, ConfigurationUtils.getInt(props, "ten", 10));
 
-        assertEquals(true, Configuration.getBoolean(props, "vrai", false));
-        assertEquals(false, Configuration.getBoolean(props, "faux", true));
-        assertEquals(true, Configuration.getBoolean(props, "wrong", true));
+        assertEquals(true, ConfigurationUtils.getBoolean(props, "vrai", false));
+        assertEquals(false, ConfigurationUtils.getBoolean(props, "faux", true));
+        assertEquals(true, ConfigurationUtils.getBoolean(props, "wrong", true));
     }
 
     public void testToString() {
         final String expectation = "a Configuration with [allowMultipleLrc=false, asynchronous2Pc=false," +
                 " backgroundRecoveryInterval=1, backgroundRecoveryIntervalSeconds=60, conservativeJournaling=false, currentNodeOnlyRecovery=true," +
                 " debugZeroResourceTransaction=false, defaultTransactionTimeout=60, disableJmx=false," +
-                " exceptionAnalyzer=null, filterLogStatus=false," +
-                " forceBatchingEnabled=true, forcedWriteEnabled=true, gracefulShutdownInterval=10, jdbcProxyFactoryClass=auto," +
+                " diskConfiguration.filterLogStatus=false, diskConfiguration.forceBatchingEnabled=true, diskConfiguration.forcedWriteEnabled=true," +
+                " diskConfiguration.logPart1Filename=target/btm1.tlog, diskConfiguration.logPart2Filename=target/btm2.tlog," +
+                " diskConfiguration.maxLogSizeInMb=2, diskConfiguration.skipCorruptedLogs=false," +
+                " exceptionAnalyzer=null, gracefulShutdownInterval=10, jdbcProxyFactoryClass=auto," +
                 " jndiTransactionSynchronizationRegistryName=java:comp/TransactionSynchronizationRegistry," +
                 " jndiUserTransactionName=java:comp/UserTransaction, journal=disk," +
-                " logPart1Filename=target/btm1.tlog, logPart2Filename=target/btm2.tlog, maxLogSizeInMb=2," +
-                " resourceConfigurationFilename=null, serverId=null, skipCorruptedLogs=false, synchronousJmxRegistration=false," +
+                " primaryDiskConfiguration.filterLogStatus=false, primaryDiskConfiguration.forceBatchingEnabled=true," +
+                " primaryDiskConfiguration.forcedWriteEnabled=true, primaryDiskConfiguration.logPart1Filename=btm1.tlog," +
+                " primaryDiskConfiguration.logPart2Filename=btm2.tlog, primaryDiskConfiguration.maxLogSizeInMb=2," +
+                " primaryDiskConfiguration.skipCorruptedLogs=false, primaryJournal=disk, resourceConfigurationFilename=null," +
+                " secondaryDiskConfiguration.filterLogStatus=false, secondaryDiskConfiguration.forceBatchingEnabled=true," +
+                " secondaryDiskConfiguration.forcedWriteEnabled=true, secondaryDiskConfiguration.logPart1Filename=btm3.tlog," +
+                " secondaryDiskConfiguration.logPart2Filename=btm4.tlog, secondaryDiskConfiguration.maxLogSizeInMb=2," +
+                " secondaryDiskConfiguration.skipCorruptedLogs=false, secondaryJournal=disk," +
+                " serverId=null, synchronousJmxRegistration=false," +
                 " warnAboutZeroResourceTransaction=true]";
 
         assertEquals(expectation, new Configuration().toString());

@@ -15,6 +15,8 @@
  */
 package bitronix.tm.utils;
 
+import bitronix.tm.PropertiesPack;
+
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -111,7 +113,12 @@ public final class PropertyUtils {
 
                 try {
                     Object propertyValue = method.invoke(target);
-                    if (propertyValue != null && propertyValue instanceof Map) {
+                    if (propertyValue != null && PropertiesPack.class.isAssignableFrom(propertyValue.getClass())) {
+                        final Map<String, Object> packProperties = getProperties(propertyValue);
+                        for (Map.Entry<String, Object> entry: packProperties.entrySet()) {
+                            properties.put(propertyName + "." + entry.getKey(), entry.getValue());
+                        }
+                    } else if (propertyValue != null && propertyValue instanceof Map) {
                         @SuppressWarnings("unchecked")
                         Map<String, Object> propertiesContent = getNestedProperties(propertyName, (Map<String, Object>) propertyValue);
                         properties.putAll(propertiesContent);
@@ -207,6 +214,8 @@ public final class PropertyUtils {
         }
         return sb.toString();
     }
+
+
 
     /**
      * Set a direct property on the target object. Conversions from propertyValue to the proper destination type

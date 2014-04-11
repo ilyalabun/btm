@@ -15,11 +15,7 @@
  */
 package bitronix.tm;
 
-import bitronix.tm.utils.ClassLoaderUtils;
-import bitronix.tm.utils.InitializationException;
-import bitronix.tm.utils.PropertyException;
-import bitronix.tm.utils.PropertyUtils;
-import bitronix.tm.utils.Service;
+import bitronix.tm.utils.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,13 +49,12 @@ public class Configuration implements Service {
 
     private volatile String serverId;
     private final AtomicReference<byte[]> serverIdArray = new AtomicReference<byte[]>();
-    private volatile String logPart1Filename;
-    private volatile String logPart2Filename;
-    private volatile boolean forcedWriteEnabled;
-    private volatile boolean forceBatchingEnabled;
-    private volatile int maxLogSizeInMb;
-    private volatile boolean filterLogStatus;
-    private volatile boolean skipCorruptedLogs;
+
+    private volatile DiskJournalConfiguration diskConfiguration;
+
+    private volatile DiskJournalConfiguration primaryDiskConfiguration;
+    private volatile DiskJournalConfiguration secondaryDiskConfiguration;
+
     private volatile boolean asynchronous2Pc;
     private volatile boolean warnAboutZeroResourceTransaction;
     private volatile boolean debugZeroResourceTransaction;
@@ -71,6 +66,8 @@ public class Configuration implements Service {
     private volatile String jndiUserTransactionName;
     private volatile String jndiTransactionSynchronizationRegistryName;
     private volatile String journal;
+    private volatile String primaryJournal;
+    private volatile String secondaryJournal;
     private volatile String exceptionAnalyzer;
     private volatile boolean currentNodeOnlyRecovery;
     private volatile boolean allowMultipleLrc;
@@ -85,46 +82,50 @@ public class Configuration implements Service {
             try {
                 String configurationFilename = System.getProperty("bitronix.tm.configuration");
                 if (configurationFilename != null) {
-                    if (log.isDebugEnabled()) { log.debug("loading configuration file " + configurationFilename); }
+                    if (log.isDebugEnabled()) {
+                        log.debug("loading configuration file " + configurationFilename);
+                    }
                     in = new FileInputStream(configurationFilename);
                 } else {
-                    if (log.isDebugEnabled()) { log.debug("loading default configuration"); }
+                    if (log.isDebugEnabled()) {
+                        log.debug("loading default configuration");
+                    }
                     in = ClassLoaderUtils.getResourceAsStream("bitronix-default-config.properties");
                 }
                 properties = new Properties();
                 if (in != null)
                     properties.load(in);
-                else
-                     if (log.isDebugEnabled()) { log.debug("no configuration file found, using default settings"); }
+                else if (log.isDebugEnabled()) {
+                    log.debug("no configuration file found, using default settings");
+                }
             } finally {
                 if (in != null) in.close();
             }
 
-            serverId = getString(properties, "bitronix.tm.serverId", null);
-            logPart1Filename = getString(properties, "bitronix.tm.journal.disk.logPart1Filename", "btm1.tlog");
-            logPart2Filename = getString(properties, "bitronix.tm.journal.disk.logPart2Filename", "btm2.tlog");
-            forcedWriteEnabled = getBoolean(properties, "bitronix.tm.journal.disk.forcedWriteEnabled", true);
-            forceBatchingEnabled = getBoolean(properties, "bitronix.tm.journal.disk.forceBatchingEnabled", true);
-            maxLogSizeInMb = getInt(properties, "bitronix.tm.journal.disk.maxLogSize", 2);
-            filterLogStatus = getBoolean(properties, "bitronix.tm.journal.disk.filterLogStatus", false);
-            skipCorruptedLogs = getBoolean(properties, "bitronix.tm.journal.disk.skipCorruptedLogs", false);
-            asynchronous2Pc = getBoolean(properties, "bitronix.tm.2pc.async", false);
-            warnAboutZeroResourceTransaction = getBoolean(properties, "bitronix.tm.2pc.warnAboutZeroResourceTransactions", true);
-            debugZeroResourceTransaction = getBoolean(properties, "bitronix.tm.2pc.debugZeroResourceTransactions", false);
-            defaultTransactionTimeout = getInt(properties, "bitronix.tm.timer.defaultTransactionTimeout", 60);
-            gracefulShutdownInterval = getInt(properties, "bitronix.tm.timer.gracefulShutdownInterval", 60);
-            backgroundRecoveryIntervalSeconds = getInt(properties, "bitronix.tm.timer.backgroundRecoveryIntervalSeconds", 60);
-            disableJmx = getBoolean(properties, "bitronix.tm.disableJmx", false);
-            synchronousJmxRegistration = getBoolean(properties, "bitronix.tm.jmx.sync", false);
-            jndiUserTransactionName = getString(properties, "bitronix.tm.jndi.userTransactionName", "java:comp/UserTransaction");
-            jndiTransactionSynchronizationRegistryName = getString(properties, "bitronix.tm.jndi.transactionSynchronizationRegistryName", "java:comp/TransactionSynchronizationRegistry");
-            journal = getString(properties, "bitronix.tm.journal", "disk");
-            exceptionAnalyzer = getString(properties, "bitronix.tm.exceptionAnalyzer", null);
-            currentNodeOnlyRecovery = getBoolean(properties, "bitronix.tm.currentNodeOnlyRecovery", true);
-            allowMultipleLrc = getBoolean(properties, "bitronix.tm.allowMultipleLrc", false);
-            resourceConfigurationFilename = getString(properties, "bitronix.tm.resource.configuration", null);
-            conservativeJournaling = getBoolean(properties, "bitronix.tm.conservativeJournaling", false);
-            jdbcProxyFactoryClass = getString(properties, "bitronix.tm.jdbcProxyFactoryClass", "auto");
+            serverId = ConfigurationUtils.getString(properties, "bitronix.tm.serverId", null);
+
+            diskConfiguration = new DiskJournalConfiguration(this, properties, "bitronix.tm.journal.disk", "btm1.tlog", "btm2.tlog");
+            primaryDiskConfiguration = new DiskJournalConfiguration(this, properties, "bitronix.tm.journal.multiplexed.primary.disk", "btm1.tlog", "btm2.tlog");
+            secondaryDiskConfiguration = new DiskJournalConfiguration(this, properties, "bitronix.tm.journal.multiplexed.secondary.disk", "btm3.tlog", "btm4.tlog");
+            asynchronous2Pc = ConfigurationUtils.getBoolean(properties, "bitronix.tm.2pc.async", false);
+            warnAboutZeroResourceTransaction = ConfigurationUtils.getBoolean(properties, "bitronix.tm.2pc.warnAboutZeroResourceTransactions", true);
+            debugZeroResourceTransaction = ConfigurationUtils.getBoolean(properties, "bitronix.tm.2pc.debugZeroResourceTransactions", false);
+            defaultTransactionTimeout = ConfigurationUtils.getInt(properties, "bitronix.tm.timer.defaultTransactionTimeout", 60);
+            gracefulShutdownInterval = ConfigurationUtils.getInt(properties, "bitronix.tm.timer.gracefulShutdownInterval", 60);
+            backgroundRecoveryIntervalSeconds = ConfigurationUtils.getInt(properties, "bitronix.tm.timer.backgroundRecoveryIntervalSeconds", 60);
+            disableJmx = ConfigurationUtils.getBoolean(properties, "bitronix.tm.disableJmx", false);
+            synchronousJmxRegistration = ConfigurationUtils.getBoolean(properties, "bitronix.tm.jmx.sync", false);
+            jndiUserTransactionName = ConfigurationUtils.getString(properties, "bitronix.tm.jndi.userTransactionName", "java:comp/UserTransaction");
+            jndiTransactionSynchronizationRegistryName = ConfigurationUtils.getString(properties, "bitronix.tm.jndi.transactionSynchronizationRegistryName", "java:comp/TransactionSynchronizationRegistry");
+            journal = ConfigurationUtils.getString(properties, "bitronix.tm.journal", "disk");
+            primaryJournal = ConfigurationUtils.getString(properties, "bitronix.tm.journal.multiplexed.primary.journal", "disk");
+            secondaryJournal = ConfigurationUtils.getString(properties, "bitronix.tm.journal.multiplexed.secondary.journal", "disk");
+            exceptionAnalyzer = ConfigurationUtils.getString(properties, "bitronix.tm.exceptionAnalyzer", null);
+            currentNodeOnlyRecovery = ConfigurationUtils.getBoolean(properties, "bitronix.tm.currentNodeOnlyRecovery", true);
+            allowMultipleLrc = ConfigurationUtils.getBoolean(properties, "bitronix.tm.allowMultipleLrc", false);
+            resourceConfigurationFilename = ConfigurationUtils.getString(properties, "bitronix.tm.resource.configuration", null);
+            conservativeJournaling = ConfigurationUtils.getBoolean(properties, "bitronix.tm.conservativeJournaling", false);
+            jdbcProxyFactoryClass = ConfigurationUtils.getString(properties, "bitronix.tm.jdbcProxyFactoryClass", "auto");
         } catch (IOException ex) {
             throw new InitializationException("error loading configuration", ex);
         }
@@ -149,162 +150,8 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setServerId(String serverId) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.serverId = serverId;
-        return this;
-    }
-
-    /**
-     * Get the journal fragment file 1 name.
-     * <p>Property name:<br/><b>bitronix.tm.journal.disk.logPart1Filename -</b> <i>(defaults to btm1.tlog)</i></p>
-     * @return the journal fragment file 1 name.
-     */
-    public String getLogPart1Filename() {
-        return logPart1Filename;
-    }
-
-    /**
-     * Set the journal fragment file 1 name.
-     * @see #getLogPart1Filename()
-     * @param logPart1Filename the journal fragment file 1 name.
-     * @return this.
-     */
-    public Configuration setLogPart1Filename(String logPart1Filename) {
-        checkNotStarted();
-        this.logPart1Filename = logPart1Filename;
-        return this;
-    }
-
-    /**
-     * Get the journal fragment file 2 name.
-     * <p>Property name:<br/><b>bitronix.tm.journal.disk.logPart2Filename -</b> <i>(defaults to btm2.tlog)</i></p>
-     * @return the journal fragment file 2 name.
-     */
-    public String getLogPart2Filename() {
-        return logPart2Filename;
-    }
-
-    /**
-     * Set the journal fragment file 2 name.
-     * @see #getLogPart2Filename()
-     * @param logPart2Filename the journal fragment file 2 name.
-     * @return this.
-     */
-    public Configuration setLogPart2Filename(String logPart2Filename) {
-        checkNotStarted();
-        this.logPart2Filename = logPart2Filename;
-        return this;
-    }
-
-    /**
-     * Are logs forced to disk?  Do not set to false in production since without disk force, integrity is not
-     * guaranteed.
-     * <p>Property name:<br/><b>bitronix.tm.journal.disk.forcedWriteEnabled -</b> <i>(defaults to true)</i></p>
-     * @return true if logs are forced to disk, false otherwise.
-     */
-    public boolean isForcedWriteEnabled() {
-        return forcedWriteEnabled;
-    }
-
-    /**
-     * Set if logs are forced to disk.  Do not set to false in production since without disk force, integrity is not
-     * guaranteed.
-     * @see #isForcedWriteEnabled()
-     * @param forcedWriteEnabled true if logs should be forced to disk, false otherwise.
-     * @return this.
-     */
-    public Configuration setForcedWriteEnabled(boolean forcedWriteEnabled) {
-        checkNotStarted();
-        this.forcedWriteEnabled = forcedWriteEnabled;
-        return this;
-    }
-
-    /**
-     * Are disk forces batched? Disabling batching can seriously lower the transaction manager's throughput.
-     * <p>Property name:<br/><b>bitronix.tm.journal.disk.forceBatchingEnabled -</b> <i>(defaults to true)</i></p>
-     * @return true if disk forces are batched, false otherwise.
-     */
-    public boolean isForceBatchingEnabled() {
-        return forceBatchingEnabled;
-    }
-
-    /**
-     * Set if disk forces are batched. Disabling batching can seriously lower the transaction manager's throughput.
-     * @see #isForceBatchingEnabled()
-     * @param forceBatchingEnabled true if disk forces are batched, false otherwise.
-     * @return this.
-     */
-    public Configuration setForceBatchingEnabled(boolean forceBatchingEnabled) {
-        checkNotStarted();
-        log.warn("forceBatchingEnabled is not longer used");
-        this.forceBatchingEnabled = forceBatchingEnabled;
-        return this;
-    }
-
-    /**
-     * Maximum size in megabytes of the journal fragments. Larger logs allow transactions to stay longer in-doubt but
-     * the TM pauses longer when a fragment is full.
-     * <p>Property name:<br/><b>bitronix.tm.journal.disk.maxLogSize -</b> <i>(defaults to 2)</i></p>
-     * @return the maximum size in megabytes of the journal fragments.
-     */
-    public int getMaxLogSizeInMb() {
-        return maxLogSizeInMb;
-    }
-
-    /**
-     * Set the Maximum size in megabytes of the journal fragments. Larger logs allow transactions to stay longer
-     * in-doubt but the TM pauses longer when a fragment is full.
-     * @see #getMaxLogSizeInMb()
-     * @param maxLogSizeInMb the maximum size in megabytes of the journal fragments.
-     * @return this.
-     */
-    public Configuration setMaxLogSizeInMb(int maxLogSizeInMb) {
-        checkNotStarted();
-        this.maxLogSizeInMb = maxLogSizeInMb;
-        return this;
-    }
-
-    /**
-     * Should only mandatory logs be written? Enabling this parameter lowers space usage of the fragments but makes
-     * debugging more complex.
-     * <p>Property name:<br/><b>bitronix.tm.journal.disk.filterLogStatus -</b> <i>(defaults to false)</i></p>
-     * @return true if only mandatory logs should be written.
-     */
-    public boolean isFilterLogStatus() {
-        return filterLogStatus;
-    }
-
-    /**
-     * Set if only mandatory logs should be written. Enabling this parameter lowers space usage of the fragments but
-     * makes debugging more complex.
-     * @see #isFilterLogStatus()
-     * @param filterLogStatus true if only mandatory logs should be written.
-     * @return this.
-     */
-    public Configuration setFilterLogStatus(boolean filterLogStatus) {
-        checkNotStarted();
-        this.filterLogStatus = filterLogStatus;
-        return this;
-    }
-
-    /**
-     * Should corrupted logs be skipped?
-     * <p>Property name:<br/><b>bitronix.tm.journal.disk.skipCorruptedLogs -</b> <i>(defaults to false)</i></p>
-     * @return true if corrupted logs should be skipped.
-     */
-    public boolean isSkipCorruptedLogs() {
-        return skipCorruptedLogs;
-    }
-
-    /**
-     * Set if corrupted logs should be skipped.
-     * @see #isSkipCorruptedLogs()
-     * @param skipCorruptedLogs true if corrupted logs should be skipped.
-     * @return this.
-     */
-    public Configuration setSkipCorruptedLogs(boolean skipCorruptedLogs) {
-        checkNotStarted();
-        this.skipCorruptedLogs = skipCorruptedLogs;
         return this;
     }
 
@@ -328,7 +175,7 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setAsynchronous2Pc(boolean asynchronous2Pc) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.asynchronous2Pc = asynchronous2Pc;
         return this;
     }
@@ -352,7 +199,7 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setWarnAboutZeroResourceTransaction(boolean warnAboutZeroResourceTransaction) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.warnAboutZeroResourceTransaction = warnAboutZeroResourceTransaction;
         return this;
     }
@@ -378,7 +225,7 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setDebugZeroResourceTransaction(boolean debugZeroResourceTransaction) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.debugZeroResourceTransaction = debugZeroResourceTransaction;
         return this;
     }
@@ -399,7 +246,7 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setDefaultTransactionTimeout(int defaultTransactionTimeout) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.defaultTransactionTimeout = defaultTransactionTimeout;
         return this;
     }
@@ -421,7 +268,7 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setGracefulShutdownInterval(int gracefulShutdownInterval) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.gracefulShutdownInterval = gracefulShutdownInterval;
         return this;
     }
@@ -465,7 +312,7 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setBackgroundRecoveryIntervalSeconds(int backgroundRecoveryIntervalSeconds) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.backgroundRecoveryIntervalSeconds = backgroundRecoveryIntervalSeconds;
         return this;
     }
@@ -486,7 +333,7 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setDisableJmx(boolean disableJmx) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.disableJmx = disableJmx;
         return this;
     }
@@ -510,7 +357,7 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setSynchronousJmxRegistration(boolean synchronousJmxRegistration) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.synchronousJmxRegistration = synchronousJmxRegistration;
         return this;
     }
@@ -534,7 +381,7 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setJndiUserTransactionName(String jndiUserTransactionName) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.jndiUserTransactionName = jndiUserTransactionName;
         return this;
     }
@@ -558,7 +405,7 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setJndiTransactionSynchronizationRegistryName(String jndiTransactionSynchronizationRegistryName) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.jndiTransactionSynchronizationRegistryName = jndiTransactionSynchronizationRegistryName;
         return this;
     }
@@ -578,7 +425,7 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setJournal(String journal) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.journal = journal;
         return this;
     }
@@ -598,7 +445,7 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setExceptionAnalyzer(String exceptionAnalyzer) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.exceptionAnalyzer = exceptionAnalyzer;
         return this;
     }
@@ -620,7 +467,7 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setCurrentNodeOnlyRecovery(boolean currentNodeOnlyRecovery) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.currentNodeOnlyRecovery = currentNodeOnlyRecovery;
         return this;
     }
@@ -635,12 +482,68 @@ public class Configuration implements Service {
     }
 
     /**
+     * Configuration for primary multiplexed disk journal
+     *
+     * @return configuration
+     */
+    public DiskJournalConfiguration getPrimaryDiskConfiguration() {
+        return primaryDiskConfiguration;
+    }
+
+    /**
+     * Configuration for primary multiplexed disk journal
+     * @return configuration
+     */
+    public DiskJournalConfiguration getSecondaryDiskConfiguration() {
+        return secondaryDiskConfiguration;
+    }
+
+    /**
+     * Primary journal for multiplexed journal.
+     *
+     * @return journal name
+     */
+    public String getPrimaryJournal() {
+        return primaryJournal;
+    }
+
+    /**
+     * Secondary journal for multiplexed journal.
+     *
+     * @return journal name
+     */
+    public String getSecondaryJournal() {
+        return secondaryJournal;
+    }
+
+    public void setDiskConfiguration(DiskJournalConfiguration diskConfiguration) {
+        this.diskConfiguration = diskConfiguration;
+    }
+
+    public void setPrimaryDiskConfiguration(DiskJournalConfiguration primaryDiskConfiguration) {
+        this.primaryDiskConfiguration = primaryDiskConfiguration;
+    }
+
+    public void setSecondaryDiskConfiguration(DiskJournalConfiguration secondaryDiskConfiguration) {
+        this.secondaryDiskConfiguration = secondaryDiskConfiguration;
+    }
+
+    public void setPrimaryJournal(String primaryJournal) {
+        this.primaryJournal = primaryJournal;
+    }
+
+    public void setSecondaryJournal(String secondaryJournal) {
+        this.secondaryJournal = secondaryJournal;
+    }
+
+    /**
      * Set to true if the transaction manager should allow enlistment of multiple LRC resources in a single transaction.
+     *
      * @param allowMultipleLrc true if the transaction manager should allow enlistment of multiple LRC resources in a single transaction, false otherwise.
      * @return this
      */
     public Configuration setAllowMultipleLrc(boolean allowMultipleLrc) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.allowMultipleLrc = allowMultipleLrc;
         return this;
     }
@@ -659,7 +562,7 @@ public class Configuration implements Service {
      * @return this
      */
     public Configuration setConservativeJournaling(boolean conservativeJournaling) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
     	this.conservativeJournaling = conservativeJournaling;
     	return this;
     }
@@ -702,9 +605,13 @@ public class Configuration implements Service {
      * @return this.
      */
     public Configuration setResourceConfigurationFilename(String resourceConfigurationFilename) {
-        checkNotStarted();
+        ConfigurationUtils.checkNotStarted();
         this.resourceConfigurationFilename = resourceConfigurationFilename;
         return this;
+    }
+
+    public DiskJournalConfiguration getDiskConfiguration() {
+        return diskConfiguration;
     }
 
     /**
@@ -782,53 +689,4 @@ public class Configuration implements Service {
         sb.append("]");
         return sb.toString();
     }
-
-    /*
-    * Internal implementation
-    */
-
-    private void checkNotStarted() {
-        if (TransactionManagerServices.isTransactionManagerRunning())
-            throw new IllegalStateException("cannot change the configuration while the transaction manager is running");
-    }
-
-    static String getString(Properties properties, String key, String defaultValue) {
-        String value = System.getProperty(key);
-        if (value == null) {
-            value = properties.getProperty(key);
-            if (value == null)
-                return defaultValue;
-        }
-        return evaluate(properties, value);
-    }
-
-    static boolean getBoolean(Properties properties, String key, boolean defaultValue) {
-        return Boolean.valueOf(getString(properties, key, "" + defaultValue));
-    }
-
-    static int getInt(Properties properties, String key, int defaultValue) {
-        return Integer.parseInt(getString(properties, key, "" + defaultValue));
-    }
-
-    private static String evaluate(Properties properties, String value) {
-        String result = value;
-
-        int startIndex = value.indexOf('$');
-        if (startIndex > -1 && value.length() > startIndex +1 && value.charAt(startIndex +1) == '{') {
-            int endIndex = value.indexOf('}');
-            if (startIndex +2 == endIndex)
-                throw new IllegalArgumentException("property ref cannot refer to an empty name: ${}");
-            if (endIndex == -1)
-                throw new IllegalArgumentException("unclosed property ref: ${" + value.substring(startIndex +2));
-
-            String subPropertyKey = value.substring(startIndex +2, endIndex);
-            String subPropertyValue = getString(properties, subPropertyKey, null);
-
-            result = result.substring(0, startIndex) + subPropertyValue + result.substring(endIndex +1);
-            return evaluate(properties, result);
-        }
-
-        return result;
-    }
-
 }

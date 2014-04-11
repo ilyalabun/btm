@@ -17,6 +17,7 @@ package bitronix.tm.mock.resource;
 
 import bitronix.tm.journal.Journal;
 import bitronix.tm.journal.JournalRecord;
+import bitronix.tm.journal.JournalRecords;
 import bitronix.tm.journal.TransactionLogRecord;
 import bitronix.tm.mock.events.EventRecorder;
 import bitronix.tm.mock.events.JournalLogEvent;
@@ -35,7 +36,7 @@ import java.util.Set;
  */
 public class MockJournal implements Journal {
 
-    private Map<Uid, JournalRecord> danglingRecords;
+    private JournalRecords records;
 
     private EventRecorder getEventRecorder() {
         return EventRecorder.getEventRecorder(this);
@@ -44,31 +45,36 @@ public class MockJournal implements Journal {
     public void log(int status, Uid gtrid, Set<String> uniqueNames) throws IOException {
         TransactionLogRecord record = new TransactionLogRecord(status, gtrid, uniqueNames);
         if (status == Status.STATUS_COMMITTING) {
-            danglingRecords.put(gtrid, record);
+            records.addDanglingRecord(record);
         }
         if (status == Status.STATUS_COMMITTED) {
-            danglingRecords.remove(gtrid);
+            records.removeDanglingRecord(gtrid);
+            records.addComittedRecord(record);
         }
         getEventRecorder().addEvent(new JournalLogEvent(this, status, gtrid, uniqueNames));
     }
 
     public void open() throws IOException {
-        danglingRecords = new HashMap<Uid, JournalRecord>();
+        records = new JournalRecords();
     }
 
     public void close() throws IOException {
-        danglingRecords = null;
+        records = null;
     }
 
     public void force() throws IOException {
     }
 
     public Map<Uid, JournalRecord> collectDanglingRecords() throws IOException {
-        return danglingRecords;
+        return records.getDanglingRecords();
+    }
+
+    public JournalRecords collectAllRecords() throws IOException {
+        return records;
     }
 
     public Iterator<JournalRecord> readRecords(boolean includeInvalid) throws IOException {
-        return danglingRecords.values().iterator();
+        return records.getDanglingRecords().values().iterator();
     }
 
     public void shutdown() {

@@ -50,6 +50,10 @@ public class NullJournal implements Journal {
         return Collections.emptyMap();
     }
 
+    public JournalRecords collectAllRecords() throws IOException {
+        return new JournalRecords();
+    }
+
     public void shutdown() {
     }
 

@@ -16,6 +16,7 @@
 package bitronix.tm;
 
 import bitronix.tm.journal.DiskJournal;
+import bitronix.tm.journal.MultiplexedJournal;
 import bitronix.tm.journal.Journal;
 import bitronix.tm.journal.NullJournal;
 import bitronix.tm.recovery.Recoverer;
@@ -113,20 +114,18 @@ public class TransactionManagerServices {
         Journal journal = journalRef.get();
         if (journal == null) {
             String configuredJournal = getConfiguration().getJournal();
-            if ("null".equals(configuredJournal) || null == configuredJournal) {
-                journal = new NullJournal();
-            } else if ("disk".equals(configuredJournal)) {
-                journal = new DiskJournal();
-            } else {
-                try {
-                    Class<?> clazz = ClassLoaderUtils.loadClass(configuredJournal);
-                    journal = (Journal) clazz.newInstance();
-                } catch (Exception ex) {
-                    throw new InitializationException("invalid journal implementation '" + configuredJournal + "'", ex);
-                }
-            }
-            if (log.isDebugEnabled()) { log.debug("using journal " + configuredJournal); }
+            if ("multiplexed".equals(configuredJournal)) {
+                String primaryJournal = getConfiguration().getPrimaryJournal();
+                String secondaryJournal = getConfiguration().getSecondaryJournal();
 
+                journal = new MultiplexedJournal(
+                        createJournal(primaryJournal, getConfiguration().getPrimaryDiskConfiguration()),
+                        createJournal(secondaryJournal, getConfiguration().getSecondaryDiskConfiguration()));
+            } else {
+                journal = createJournal(configuredJournal, getConfiguration().getDiskConfiguration());
+            }
+
+            if (log.isDebugEnabled()) { log.debug("using journal " + journal); }
             if (!journalRef.compareAndSet(null, journal)) {
                 journal = journalRef.get();
             }
@@ -259,4 +258,18 @@ public class TransactionManagerServices {
         exceptionAnalyzerRef.set(null);
     }
 
+    private static Journal createJournal(String configuredJournal, DiskJournalConfiguration diskJournalConfiguration) {
+        if ("null".equals(configuredJournal) || null == configuredJournal) {
+            return new NullJournal();
+        } else if ("disk".equals(configuredJournal)) {
+            return new DiskJournal(diskJournalConfiguration);
+        } else {
+            try {
+                Class<?> clazz = ClassLoaderUtils.loadClass(configuredJournal);
+                return (Journal) clazz.newInstance();
+            } catch (Exception ex) {
+                throw new InitializationException("invalid journal implementation '" + configuredJournal + "'", ex);
+            }
+        }
+    }
 }

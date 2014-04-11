@@ -38,8 +38,8 @@ import java.util.TreeSet;
 public class DiskJournalTest extends TestCase {
 
     protected void setUp() throws Exception {
-        new File(TransactionManagerServices.getConfiguration().getLogPart1Filename()).delete();
-        new File(TransactionManagerServices.getConfiguration().getLogPart2Filename()).delete();
+        new File(TransactionManagerServices.getConfiguration().getDiskConfiguration().getLogPart1Filename()).delete();
+        new File(TransactionManagerServices.getConfiguration().getDiskConfiguration().getLogPart2Filename()).delete();
     }
 
     public void testExceptions() throws Exception {
@@ -188,7 +188,7 @@ public class DiskJournalTest extends TestCase {
     }
 
     public void testRollover() throws Exception {
-    	TransactionManagerServices.getConfiguration().setMaxLogSizeInMb(1);
+    	TransactionManagerServices.getConfiguration().getDiskConfiguration().setMaxLogSizeInMb(1);
         DiskJournal journal = new DiskJournal();
         journal.open();
 
@@ -224,8 +224,8 @@ public class DiskJournalTest extends TestCase {
     }
 
     public void testJournalPerformance() throws IOException, InterruptedException {
-        TransactionManagerServices.getConfiguration().setMaxLogSizeInMb(40);
-        TransactionManagerServices.getConfiguration().setForcedWriteEnabled(false);
+        TransactionManagerServices.getConfiguration().getDiskConfiguration().setMaxLogSizeInMb(40);
+        TransactionManagerServices.getConfiguration().getDiskConfiguration().setForcedWriteEnabled(false);
         final DiskJournal journal = new DiskJournal();
         journal.open();
 
@@ -272,7 +272,7 @@ public class DiskJournalTest extends TestCase {
     }
 
     public void testRolloverStress() throws IOException, InterruptedException {
-        TransactionManagerServices.getConfiguration().setMaxLogSizeInMb(1);
+        TransactionManagerServices.getConfiguration().getDiskConfiguration().setMaxLogSizeInMb(1);
         final DiskJournal journal = new DiskJournal();
         journal.open();
 

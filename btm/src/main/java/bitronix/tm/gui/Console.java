@@ -17,6 +17,7 @@ package bitronix.tm.gui;
 
 import bitronix.tm.BitronixXid;
 import bitronix.tm.Configuration;
+import bitronix.tm.DiskJournalConfiguration;
 import bitronix.tm.TransactionManagerServices;
 import bitronix.tm.journal.JournalRecord;
 import bitronix.tm.utils.Uid;
@@ -81,14 +82,14 @@ public class Console extends JFrame {
         JMenuItem countByStatus = new JMenuItem("Count by status");
         analysisMenu.add(countByStatus);
 
-        transactionLogHeaderPanel1.read(getActiveLogFile(configuration), true);
-        transactionLogHeaderPanel2.read(getPassiveLogFile(configuration), false);
+        transactionLogHeaderPanel1.read(getActiveLogFile(configuration.getDiskConfiguration()), true);
+        transactionLogHeaderPanel2.read(getPassiveLogFile(configuration.getDiskConfiguration()), false);
 
-        pendingViewTransactionsTable.setModel(new PendingTransactionTableModel(getActiveLogFile(configuration)));
+        pendingViewTransactionsTable.setModel(new PendingTransactionTableModel(getActiveLogFile(configuration.getDiskConfiguration())));
         pendingViewTransactionsTable.addMouseListener(new TransactionTableMouseListener(this, pendingViewTransactionsTable));
 
         rawViewTransactionsTable.setDefaultRenderer(String.class, new TransactionTableCellRenderer());
-        rawViewTransactionsTable.setModel(new RawTransactionTableModel(getActiveLogFile(configuration)));
+        rawViewTransactionsTable.setModel(new RawTransactionTableModel(getActiveLogFile(configuration.getDiskConfiguration())));
         rawViewTransactionsTable.addMouseListener(new TransactionTableMouseListener(this, rawViewTransactionsTable));
 
         final JPopupMenu rawViewTransactionsTablePopupMenu = new JPopupMenu();
@@ -132,7 +133,7 @@ public class Console extends JFrame {
 
         switchLogFilesItem.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent evt) {
-                switchLogFiles(configuration);
+                switchLogFiles(configuration.getDiskConfiguration());
             }
         });
 
@@ -175,9 +176,9 @@ public class Console extends JFrame {
     private File passiveLogFile;
     private File realActiveLogFile;
 
-    private File getActiveLogFile(Configuration configuration) throws IOException {
+    private File getActiveLogFile(DiskJournalConfiguration diskJournalConfiguration) throws IOException {
         if (activeLogFile == null) {
-            activeLogFile = pickCurrentLogFile(new File(configuration.getLogPart1Filename()), new File(configuration.getLogPart2Filename()));
+            activeLogFile = pickCurrentLogFile(new File(diskJournalConfiguration.getLogPart1Filename()), new File(diskJournalConfiguration.getLogPart1Filename()));
             realActiveLogFile = activeLogFile;
             if (log.isDebugEnabled()) { log.debug("active file is " + activeLogFile.getName()); }
         }
@@ -216,12 +217,12 @@ public class Console extends JFrame {
         }
     }
 
-    private File getPassiveLogFile(Configuration configuration) throws IOException {
+    private File getPassiveLogFile(DiskJournalConfiguration diskConfiguration) throws IOException {
         if (passiveLogFile == null) {
-            if (getActiveLogFile(configuration).getName().equals(configuration.getLogPart1Filename()))
-                passiveLogFile = new File(configuration.getLogPart2Filename());
+            if (getActiveLogFile(diskConfiguration).getName().equals(diskConfiguration.getLogPart1Filename()))
+                passiveLogFile = new File(diskConfiguration.getLogPart2Filename());
             else
-                passiveLogFile = new File(configuration.getLogPart1Filename());
+                passiveLogFile = new File(diskConfiguration.getLogPart1Filename());
         }
         return passiveLogFile;
     }
@@ -230,7 +231,7 @@ public class Console extends JFrame {
         statusLabel.setText("active log file is " + realActiveLogFile.getName() + " - displayed log file contains " + pendingViewTransactionsTable.getModel().getRowCount() + " dangling transaction log(s) over " + rawViewTransactionsTable.getModel().getRowCount() + " total transaction log(s)");
     }
 
-    private void switchLogFiles(Configuration configuration) {
+    private void switchLogFiles(DiskJournalConfiguration diskJournalConfiguration) {
         File temp = activeLogFile;
         activeLogFile = passiveLogFile;
         passiveLogFile = temp;
@@ -238,11 +239,11 @@ public class Console extends JFrame {
 
 
         try {
-            transactionLogHeaderPanel1.read(realActiveLogFile, configuration.getLogPart1Filename().equals(activeLogFile.getName()));
-            transactionLogHeaderPanel2.read(realPassive, configuration.getLogPart2Filename().equals(activeLogFile.getName()));
+            transactionLogHeaderPanel1.read(realActiveLogFile, diskJournalConfiguration.getLogPart1Filename().equals(activeLogFile.getName()));
+            transactionLogHeaderPanel2.read(realPassive, diskJournalConfiguration.getLogPart2Filename().equals(activeLogFile.getName()));
 
-            pendingViewTransactionsTable.setModel(new PendingTransactionTableModel(getActiveLogFile(configuration)));
-            rawViewTransactionsTable.setModel(new RawTransactionTableModel(getActiveLogFile(configuration)));
+            pendingViewTransactionsTable.setModel(new PendingTransactionTableModel(getActiveLogFile(diskJournalConfiguration)));
+            rawViewTransactionsTable.setModel(new RawTransactionTableModel(getActiveLogFile(diskJournalConfiguration)));
 
             refreshStatus();
         } catch (IOException ex) {

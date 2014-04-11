@@ -69,4 +69,12 @@ public interface Journal extends Service {
      * @throws IOException if an I/O error occurs.
      */
     public Map<Uid, JournalRecord> collectDanglingRecords() throws IOException;
+
+    /**
+     * Collect all records form journal. Records are divided into dangling and committed.
+     *
+     * @return all journal records.
+     * @throws IOException if an I/O error occurs.
+     */
+    public JournalRecords collectAllRecords() throws IOException;
 }
