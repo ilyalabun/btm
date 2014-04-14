@@ -55,6 +55,8 @@ public class Configuration implements Service {
     private volatile DiskJournalConfiguration primaryDiskConfiguration;
     private volatile DiskJournalConfiguration secondaryDiskConfiguration;
 
+    private volatile boolean failOnRecordCorruption;
+
     private volatile boolean asynchronous2Pc;
     private volatile boolean warnAboutZeroResourceTransaction;
     private volatile boolean debugZeroResourceTransaction;
@@ -126,6 +128,7 @@ public class Configuration implements Service {
             resourceConfigurationFilename = ConfigurationUtils.getString(properties, "bitronix.tm.resource.configuration", null);
             conservativeJournaling = ConfigurationUtils.getBoolean(properties, "bitronix.tm.conservativeJournaling", false);
             jdbcProxyFactoryClass = ConfigurationUtils.getString(properties, "bitronix.tm.jdbcProxyFactoryClass", "auto");
+            failOnRecordCorruption = ConfigurationUtils.getBoolean(properties, "bitronix.tm.journal.multiplexed.failOnRecordCorruption", true);
         } catch (IOException ex) {
             throw new InitializationException("error loading configuration", ex);
         }
@@ -612,6 +615,22 @@ public class Configuration implements Service {
 
     public DiskJournalConfiguration getDiskConfiguration() {
         return diskConfiguration;
+    }
+
+    public boolean isFailOnRecordCorruption() {
+        return failOnRecordCorruption;
+    }
+
+    /**
+     * Fail when both journals have same corrupted records
+     * @param failOnRecordCorruption true if fail is acceptable
+     * @return this.
+     */
+    public Configuration setFailOnRecordCorruption(boolean failOnRecordCorruption) {
+        ConfigurationUtils.checkNotStarted();
+        this.failOnRecordCorruption = failOnRecordCorruption;
+        return this;
+
     }
 
     /**

@@ -27,10 +27,10 @@ public class DiskJournalConfiguration implements PropertiesPack {
         logPart1Filename = ConfigurationUtils.getString(properties, prefix + ".logPart1Filename", defaultPart1Name);
         logPart2Filename = ConfigurationUtils.getString(properties, prefix + ".logPart2Filename", defaultPart2Name);
         forcedWriteEnabled = ConfigurationUtils.getBoolean(properties, prefix + ".forcedWriteEnabled", true);
-        forceBatchingEnabled = ConfigurationUtils.getBoolean(properties, prefix + ".disk.forceBatchingEnabled", true);
-        maxLogSizeInMb = ConfigurationUtils.getInt(properties, prefix + ".disk.maxLogSize", 2);
-        filterLogStatus = ConfigurationUtils.getBoolean(properties, prefix + ".disk.filterLogStatus", false);
-        skipCorruptedLogs = ConfigurationUtils.getBoolean(properties, prefix + ".disk.skipCorruptedLogs", false);
+        forceBatchingEnabled = ConfigurationUtils.getBoolean(properties, prefix + ".forceBatchingEnabled", true);
+        maxLogSizeInMb = ConfigurationUtils.getInt(properties, prefix + ".maxLogSize", 2);
+        filterLogStatus = ConfigurationUtils.getBoolean(properties, prefix + ".filterLogStatus", false);
+        skipCorruptedLogs = ConfigurationUtils.getBoolean(properties, prefix + ".skipCorruptedLogs", false);
     }
 
     /**

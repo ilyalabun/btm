@@ -455,14 +455,17 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
         try {
             int committing = 0;
             int committed = 0;
+            int recordNumber = -1;
 
             while (true) {
                 TransactionLogRecord tlog;
                 try {
+                    recordNumber++;
                     tlog = tlc.readLog();
                 } catch (CorruptedTransactionLogException ex) {
                     if (diskJournalConfiguration.isSkipCorruptedLogs()) {
                         log.error("skipping corrupted log", ex);
+                        records.addCorruptedRecord(recordNumber);
                         continue;
                     }
                     throw ex;
@@ -492,7 +495,7 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
                             records.addDanglingRecord(new TransactionLogRecord(rec.getStatus(), rec.getGtrid(), recUniqueNames));
                         }
                     }
-                    records.addComittedRecord(tlog);
+                    records.addCommittedRecord(tlog);
                 }
             }
 

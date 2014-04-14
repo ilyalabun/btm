@@ -1,5 +1,6 @@
 package bitronix.tm.journal;
 
+import bitronix.tm.TransactionManagerServices;
 import bitronix.tm.utils.Uid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,7 +25,7 @@ public class MultiplexedJournal implements Journal {
 
     private final static Logger log = LoggerFactory.getLogger(MultiplexedJournal.class);
 
-    private ExecutorService executor = Executors.newFixedThreadPool(2);  //TODO choose proper pool size and/or type
+    private ExecutorService executor = Executors.newCachedThreadPool();
 
     /**
      * Primary journal
@@ -62,12 +63,9 @@ public class MultiplexedJournal implements Journal {
      *
      * @throws IOException
      */
-    public void open() throws IOException {
-        synchronized (this) {
-            if (executor.isShutdown())
-                executor = Executors.newFixedThreadPool(2);
-        }
-
+    public synchronized void open() throws IOException {
+        if (executor.isShutdown())
+            executor = Executors.newCachedThreadPool();
 
         executeInParallel(new VoidParallelJournalTask() {
             protected void voidExec(Journal journal) throws IOException {
@@ -160,6 +158,16 @@ public class MultiplexedJournal implements Journal {
 
         final JournalRecords primaryResult = executionResults.getPrimaryResult();
         final JournalRecords secondaryResult = executionResults.getSecondaryResult();
+
+        final Set<Integer> primaryCorruptedRecords = primaryResult.getCorruptedRecords();
+        final Set<Integer> secondaryCorruptedRecords = secondaryResult.getCorruptedRecords();
+
+        primaryCorruptedRecords.retainAll(secondaryCorruptedRecords);
+        if (!primaryCorruptedRecords.isEmpty() && TransactionManagerServices.getConfiguration().isFailOnRecordCorruption()) {
+            throw new IOException("Both journals have same corrupted records. " +
+                    "You can set bitronix.tm.journal.multiplexed.failOnRecordCorruption=false " +
+                    "to ignore records corruption at all.");
+        }
 
         if (primaryThrowable == null && secondaryThrowable != null) {
             log.warn("Failed to collect dangling records from secondary journal", secondaryThrowable);

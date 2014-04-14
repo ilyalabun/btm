@@ -49,7 +49,7 @@ public class MockJournal implements Journal {
         }
         if (status == Status.STATUS_COMMITTED) {
             records.removeDanglingRecord(gtrid);
-            records.addComittedRecord(record);
+            records.addCommittedRecord(record);
         }
         getEventRecorder().addEvent(new JournalLogEvent(this, status, gtrid, uniqueNames));
     }

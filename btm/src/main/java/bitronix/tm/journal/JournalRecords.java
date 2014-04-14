@@ -3,7 +3,9 @@ package bitronix.tm.journal;
 import bitronix.tm.utils.Uid;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * @author Ilya Labun
@@ -12,6 +14,8 @@ public class JournalRecords {
     private final Map<Uid, JournalRecord> danglingRecords;
 
     private final Map<Uid, JournalRecord> committedRecords;
+
+    private final Set<Integer> corruptedRecords = new HashSet<Integer>(64);
 
     public JournalRecords() {
         danglingRecords = new HashMap<Uid, JournalRecord>(64);
@@ -35,11 +39,11 @@ public class JournalRecords {
         danglingRecords.remove(gtrid);
     }
 
-    public void addComittedRecord(JournalRecord record) {
+    public void addCommittedRecord(JournalRecord record) {
         committedRecords.put(record.getGtrid(), record);
     }
 
-    public JournalRecord getCommitedRecord(Uid gtrid) {
+    public JournalRecord getCommittedRecord(Uid gtrid) {
         return committedRecords.get(gtrid);
     }
 
@@ -49,5 +53,13 @@ public class JournalRecords {
 
     public Map<Uid, JournalRecord> getCommittedRecords() {
         return committedRecords;
+    }
+
+    public Set<Integer> getCorruptedRecords() {
+        return corruptedRecords;
+    }
+
+    public void addCorruptedRecord(int recordNumber) {
+        corruptedRecords.add(recordNumber);
     }
 }

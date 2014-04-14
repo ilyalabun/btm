@@ -13,9 +13,10 @@ import javax.transaction.xa.XAResource;
 import javax.transaction.xa.Xid;
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Field;
+import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -57,6 +58,37 @@ public class MultiplexedJournalTest extends BaseRecoveryTest {
     }
 
     @Test
+    public void testThrowsExceptionWhenSameRecordsCorrupted() throws Exception {
+        testCorruptedJournal(new JournalCorrupter() {
+            public void corrupt(JournalRecords allRecords, Journal diskJournal, DiskJournalConfiguration diskConfiguration) throws IOException {
+                final Map<Uid, JournalRecord> committedRecords = allRecords.getCommittedRecords();
+                assertEquals(1, committedRecords.size());
+                for (JournalRecord theOnlyRecord: committedRecords.values()) {
+                    diskJournal.log(Status.STATUS_COMMITTING, theOnlyRecord.getGtrid(), theOnlyRecord.getUniqueNames());
+                    diskJournal.log(Status.STATUS_COMMITTED, theOnlyRecord.getGtrid(), theOnlyRecord.getUniqueNames());
+                    diskJournal.force();
+
+                    RandomAccessFile file = new RandomAccessFile(diskConfiguration.getLogPart1Filename(), "rw");
+                    FileChannel fileChannel = file.getChannel();
+                    fileChannel.position(TransactionLogHeader.CURRENT_POSITION_HEADER + 8);
+
+                    ByteBuffer buffer = ByteBuffer.allocate(Integer.SIZE/8);
+                    buffer.putInt(0xDEADBEEF);
+                    buffer.flip();
+                    fileChannel.write(buffer);
+                    fileChannel.force(true);
+                }
+            }
+        }, true);
+
+        try {
+            journal.collectAllRecords();
+        } catch (IOException e) {
+            assertTrue(e.getMessage().contains("Both journals have same corrupted records."));
+        }
+    }
+
+    @Test
     public void testJournalDeleteRecovery() throws Exception {
         Xid xid0 = new MockXid(0, UidGenerator.generateUid().getArray(), BitronixXid.FORMAT_ID);
         xaResource.addInDoubtXid(xid0);
@@ -65,13 +97,13 @@ public class MultiplexedJournalTest extends BaseRecoveryTest {
         names.add(pds.getUniqueName());
         journal.log(Status.STATUS_COMMITTING, new Uid(xid0.getGlobalTransactionId()), names);
         journal.force();
-        reopenJournal();
 
         if (corruptPrimary) {
             deleteJournalFiles(TransactionManagerServices.getConfiguration().getPrimaryDiskConfiguration());
         } else {
             deleteJournalFiles(TransactionManagerServices.getConfiguration().getSecondaryDiskConfiguration());
         }
+        reopenJournal();
 
         TransactionManagerServices.getRecoverer().run();
 
@@ -83,14 +115,14 @@ public class MultiplexedJournalTest extends BaseRecoveryTest {
     @Test
     public void testCorruptCommittedRecord() throws Exception {
         testCorruptedJournal(new JournalCorrupter() {
-            public void corrupt(JournalRecords allRecords, Journal diskJournal) throws IOException {
+            public void corrupt(JournalRecords allRecords, Journal diskJournal, DiskJournalConfiguration diskConfiguration) throws IOException {
                 final Map<Uid, JournalRecord> committedRecords = allRecords.getCommittedRecords();
                 for (Uid uid : committedRecords.keySet()) {
                     JournalRecord record = committedRecords.get(uid);
                     diskJournal.log(Status.STATUS_COMMITTING, record.getGtrid(), record.getUniqueNames());
                 }
             }
-        });
+        }, false);
 
         TransactionManagerServices.getRecoverer().run();
         assertEquals(0, TransactionManagerServices.getRecoverer().getCommittedCount());
@@ -102,21 +134,21 @@ public class MultiplexedJournalTest extends BaseRecoveryTest {
     @Test
     public void testCorruptCommittingRecord() throws Exception {
         testCorruptedJournal(new JournalCorrupter() {
-            public void corrupt(JournalRecords allRecords, Journal diskJournal) throws IOException {
+            public void corrupt(JournalRecords allRecords, Journal diskJournal, DiskJournalConfiguration diskConfiguration) throws IOException {
                 final Map<Uid, JournalRecord> committedRecords = allRecords.getCommittedRecords();
                 for (Uid uid : committedRecords.keySet()) {
                     JournalRecord record = committedRecords.get(uid);
                     diskJournal.log(record.getStatus(), record.getGtrid(), record.getUniqueNames());
                 }
             }
-        });
+        }, false);
         TransactionManagerServices.getRecoverer().run();
         assertEquals(0, TransactionManagerServices.getRecoverer().getCommittedCount());
         assertEquals(0, TransactionManagerServices.getRecoverer().getRolledbackCount());
         assertEquals(0, xaResource.recover(XAResource.TMSTARTRSCAN | XAResource.TMENDRSCAN).length);
     }
 
-    private void testCorruptedJournal(JournalCorrupter corrupter) throws IOException {
+    private void testCorruptedJournal(JournalCorrupter corrupter, boolean corruptBoth) throws IOException {
         Xid xid0 = new MockXid(0, UidGenerator.generateUid().getArray(), BitronixXid.FORMAT_ID);
 
         Set names = new HashSet();
@@ -130,7 +162,10 @@ public class MultiplexedJournalTest extends BaseRecoveryTest {
         journal.close();
         journal.shutdown();
 
-        if (corruptPrimary) {
+        if (corruptBoth) {
+            corruptJournal(TransactionManagerServices.getConfiguration().getPrimaryDiskConfiguration(), corrupter);
+            corruptJournal(TransactionManagerServices.getConfiguration().getSecondaryDiskConfiguration(), corrupter);
+        } else if (corruptPrimary) {
             corruptJournal(TransactionManagerServices.getConfiguration().getPrimaryDiskConfiguration(), corrupter);
         } else {
             corruptJournal(TransactionManagerServices.getConfiguration().getSecondaryDiskConfiguration(), corrupter);
@@ -173,7 +208,7 @@ public class MultiplexedJournalTest extends BaseRecoveryTest {
         Journal newDiskJournal = new DiskJournal(diskConfiguration);
         newDiskJournal.open();
 
-        corrupter.corrupt(allRecords, newDiskJournal);
+        corrupter.corrupt(allRecords, newDiskJournal, diskConfiguration);
 
         newDiskJournal.force();
 
@@ -182,6 +217,6 @@ public class MultiplexedJournalTest extends BaseRecoveryTest {
     }
 
     private interface JournalCorrupter {
-        void corrupt(JournalRecords allRecords, Journal diskJournal) throws IOException;
+        void corrupt(JournalRecords allRecords, Journal diskJournal, DiskJournalConfiguration diskConfiguration) throws IOException;
     }
 }

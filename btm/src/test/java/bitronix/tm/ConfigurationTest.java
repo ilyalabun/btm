@@ -97,7 +97,7 @@ public class ConfigurationTest extends TestCase {
                 " diskConfiguration.filterLogStatus=false, diskConfiguration.forceBatchingEnabled=true, diskConfiguration.forcedWriteEnabled=true," +
                 " diskConfiguration.logPart1Filename=target/btm1.tlog, diskConfiguration.logPart2Filename=target/btm2.tlog," +
                 " diskConfiguration.maxLogSizeInMb=2, diskConfiguration.skipCorruptedLogs=false," +
-                " exceptionAnalyzer=null, gracefulShutdownInterval=10, jdbcProxyFactoryClass=auto," +
+                " exceptionAnalyzer=null, failOnRecordCorruption=true, gracefulShutdownInterval=10, jdbcProxyFactoryClass=auto," +
                 " jndiTransactionSynchronizationRegistryName=java:comp/TransactionSynchronizationRegistry," +
                 " jndiUserTransactionName=java:comp/UserTransaction, journal=disk," +
                 " primaryDiskConfiguration.filterLogStatus=false, primaryDiskConfiguration.forceBatchingEnabled=true," +
