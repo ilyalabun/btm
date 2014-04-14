@@ -26,4 +26,8 @@ public class CorruptedTransactionLogException extends IOException {
 	public CorruptedTransactionLogException(String s) {
         super(s);
     }
+
+    public CorruptedTransactionLogException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

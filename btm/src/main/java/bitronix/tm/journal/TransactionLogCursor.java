@@ -23,6 +23,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.InvalidMarkException;
 import java.nio.channels.FileChannel;
 import java.util.HashSet;
 import java.util.Set;
@@ -85,9 +86,9 @@ public class TransactionLogCursor {
             return null;
         }
 
-        final int status = page.getInt();
+        final int status = readNonNegativeInt();
         // currentPosition += 4;
-        final int recordLength = page.getInt();
+        final int recordLength = readNonNegativeInt();
         // currentPosition += 4;
         currentPosition += 8;
 
@@ -106,15 +107,15 @@ public class TransactionLogCursor {
                     + endPosition + ", recordLength: " + recordLength + ")");
         }
 
-        final int headerLength = page.getInt();
+        final int headerLength = readNonNegativeInt();
         // currentPosition += 4;
-        final long time = page.getLong();
+        final long time = readNonNegativeLong();
         // currentPosition += 8;
-        final int sequenceNumber = page.getInt();
+        final int sequenceNumber = readNonNegativeInt();
         // currentPosition += 4;
         final int crc32 = page.getInt();
         // currentPosition += 4;
-        final byte gtridSize = page.get();
+        final byte gtridSize = readNonNegativeByte();
         // currentPosition += 1;
         currentPosition += 21;
 
@@ -122,7 +123,11 @@ public class TransactionLogCursor {
         page.mark();
         page.position(endOfRecordPosition - 4);
         int endCode = page.getInt();
-        page.reset();
+        try {
+            page.reset();
+        } catch (InvalidMarkException e) {
+            throw new CorruptedTransactionLogException("Page mark is invalid. Record is possibly corrupted.", e);
+        }
         if (endCode != TransactionLogAppender.END_RECORD)
             throw new CorruptedTransactionLogException("corrupted log found at position " + currentPosition + " (no record terminator found)");
 
@@ -137,13 +142,13 @@ public class TransactionLogCursor {
         page.get(gtridArray);
         currentPosition += gtridSize;
         Uid gtrid = new Uid(gtridArray);
-        final int uniqueNamesCount = page.getInt();
+        final int uniqueNamesCount = readNonNegativeInt();
         currentPosition += 4;
         Set<String> uniqueNames = new HashSet<String>();
         int currentReadCount = 4 + 8 + 4 + 4 + 1 + gtridSize + 4;
 
         for (int i = 0; i < uniqueNamesCount; i++) {
-            int length = page.getShort();
+            int length = readNonNegativeShort();
             currentPosition += 2;
 
             // check that names aren't too long
@@ -183,5 +188,37 @@ public class TransactionLogCursor {
     public void close() throws IOException {
         fis.close();
         fileChannel.close();
+    }
+
+    private int readNonNegativeInt() throws CorruptedTransactionLogException {
+        final int value = page.getInt();
+        if (value < 0)
+            throw new CorruptedTransactionLogException(String.format("Int value %s < 0 . Record is possibly corrupted.", value));
+
+        return value;
+    }
+
+    private long readNonNegativeLong() throws CorruptedTransactionLogException {
+        final long value = page.getLong();
+        if (value < 0)
+            throw new CorruptedTransactionLogException(String.format("Long value %s < 0. Record is possibly corrupted.", value));
+
+        return value;
+    }
+
+    private byte readNonNegativeByte() throws CorruptedTransactionLogException {
+        final byte value = page.get();
+        if (value < 0)
+            throw new CorruptedTransactionLogException(String.format("Byte value %s < 0. Record is possibly corrupted.", value));
+
+        return value;
+    }
+
+    private short readNonNegativeShort() throws CorruptedTransactionLogException {
+        final short value = page.getShort();
+        if (value < 0)
+            throw new CorruptedTransactionLogException(String.format("Short value %s < 0. Record is possibly corrupted.", value));
+
+        return value;
     }
 }
