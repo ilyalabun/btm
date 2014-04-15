@@ -1,22 +1,28 @@
 package bitronix.tm;
 
+import bitronix.tm.journal.DiskJournal;
 import bitronix.tm.journal.Journal;
+import bitronix.tm.journal.JournalRecords;
 import bitronix.tm.mock.events.EventRecorder;
 import bitronix.tm.mock.resource.MockXAResource;
 import bitronix.tm.mock.resource.jdbc.MockitoXADataSource;
 import bitronix.tm.resource.ResourceRegistrar;
 import bitronix.tm.resource.jdbc.PooledConnectionProxy;
 import bitronix.tm.resource.jdbc.PoolingDataSource;
+import bitronix.tm.testUtils.JournalCorrupter;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.sql.Connection;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.Assert.assertTrue;
 
 /**
  * @author Ilya Labun

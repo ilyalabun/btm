@@ -86,9 +86,12 @@ public class TransactionLogCursor {
             return null;
         }
 
-        final int status = readNonNegativeInt();
+        final int status = page.getInt();
         // currentPosition += 4;
-        final int recordLength = readNonNegativeInt();
+        final int recordLength = page.getInt();
+        if (recordLength < 0)
+            throw new IllegalArgumentException("Record length is negative. It's impossible to read the rest of file.");
+
         // currentPosition += 4;
         currentPosition += 8;
 
@@ -99,6 +102,11 @@ public class TransactionLogCursor {
         }
 
         final int endOfRecordPosition = page.position() + recordLength;
+        if (status < 0) {
+            skipRecord(endOfRecordPosition);
+            throw new CorruptedTransactionLogException("Status is negative. Record is corrupted");
+        }
+
         if (currentPosition + recordLength > endPosition) {
             page.position(page.position() + recordLength);
             currentPosition += recordLength;
@@ -107,17 +115,20 @@ public class TransactionLogCursor {
                     + endPosition + ", recordLength: " + recordLength + ")");
         }
 
-        final int headerLength = readNonNegativeInt();
-        // currentPosition += 4;
-        final long time = readNonNegativeLong();
-        // currentPosition += 8;
-        final int sequenceNumber = readNonNegativeInt();
-        // currentPosition += 4;
+        currentPosition += 4;
+        final int headerLength = readNonNegativeInt(endOfRecordPosition);
+
+        currentPosition += 8;
+        final long time = readNonNegativeLong(endOfRecordPosition);
+
+        currentPosition += 4;
+        final int sequenceNumber = readNonNegativeInt(endOfRecordPosition);
+
+        currentPosition += 4;
         final int crc32 = page.getInt();
-        // currentPosition += 4;
-        final byte gtridSize = readNonNegativeByte();
-        // currentPosition += 1;
-        currentPosition += 21;
+
+        currentPosition += 1;
+        final byte gtridSize = readNonNegativeByte(endOfRecordPosition);
 
         // check for log terminator
         page.mark();
@@ -142,13 +153,13 @@ public class TransactionLogCursor {
         page.get(gtridArray);
         currentPosition += gtridSize;
         Uid gtrid = new Uid(gtridArray);
-        final int uniqueNamesCount = readNonNegativeInt();
+        final int uniqueNamesCount = readNonNegativeInt(endOfRecordPosition);
         currentPosition += 4;
         Set<String> uniqueNames = new HashSet<String>();
         int currentReadCount = 4 + 8 + 4 + 4 + 1 + gtridSize + 4;
 
         for (int i = 0; i < uniqueNamesCount; i++) {
-            int length = readNonNegativeShort();
+            int length = readNonNegativeShort(endOfRecordPosition);
             currentPosition += 2;
 
             // check that names aren't too long
@@ -181,6 +192,11 @@ public class TransactionLogCursor {
         return tlog;
     }
 
+    private void skipRecord(int endOfRecordPosition) {
+        currentPosition += endOfRecordPosition - page.position();
+        page.position(endOfRecordPosition);
+    }
+
     /**
      * Close the cursor and the underlying file
      * @throws IOException if an I/O error occurs.
@@ -190,34 +206,42 @@ public class TransactionLogCursor {
         fileChannel.close();
     }
 
-    private int readNonNegativeInt() throws CorruptedTransactionLogException {
+    private int readNonNegativeInt(int endOfRecordPosition) throws CorruptedTransactionLogException {
         final int value = page.getInt();
-        if (value < 0)
+        if (value < 0) {
+            skipRecord(endOfRecordPosition);
             throw new CorruptedTransactionLogException(String.format("Int value %s < 0 . Record is possibly corrupted.", value));
+        }
 
         return value;
     }
 
-    private long readNonNegativeLong() throws CorruptedTransactionLogException {
+    private long readNonNegativeLong(int endOfRecordPosition) throws CorruptedTransactionLogException {
         final long value = page.getLong();
-        if (value < 0)
+        if (value < 0) {
+            skipRecord(endOfRecordPosition);
             throw new CorruptedTransactionLogException(String.format("Long value %s < 0. Record is possibly corrupted.", value));
+        }
 
         return value;
     }
 
-    private byte readNonNegativeByte() throws CorruptedTransactionLogException {
+    private byte readNonNegativeByte(int endOfRecordPosition) throws CorruptedTransactionLogException {
         final byte value = page.get();
-        if (value < 0)
+        if (value < 0) {
+            skipRecord(endOfRecordPosition);
             throw new CorruptedTransactionLogException(String.format("Byte value %s < 0. Record is possibly corrupted.", value));
+        }
 
         return value;
     }
 
-    private short readNonNegativeShort() throws CorruptedTransactionLogException {
+    private short readNonNegativeShort(int endOfRecordPosition) throws CorruptedTransactionLogException {
         final short value = page.getShort();
-        if (value < 0)
+        if (value < 0) {
+            skipRecord(endOfRecordPosition);
             throw new CorruptedTransactionLogException(String.format("Short value %s < 0. Record is possibly corrupted.", value));
+        }
 
         return value;
     }
