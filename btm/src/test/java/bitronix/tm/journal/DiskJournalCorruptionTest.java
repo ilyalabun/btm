@@ -38,6 +38,9 @@ import static org.junit.Assert.assertTrue;
 @RunWith(Parameterized.class)
 public class DiskJournalCorruptionTest {
 
+    private static final MockXid XID0 = new MockXid(0, UidGenerator.generateUid().getArray(), BitronixXid.FORMAT_ID);
+    private static final MockXid XID1 = new MockXid(1, UidGenerator.generateUid().getArray(), BitronixXid.FORMAT_ID);
+
     private DiskJournal journal;
 
     private DiskJournalConfiguration conf = TransactionManagerServices.getConfiguration().getDiskConfiguration();
@@ -55,7 +58,8 @@ public class DiskJournalCorruptionTest {
                 {12, false},
                 {20, false},
                 {28, false},
-                {32, false}
+                {28 + 1 + XID0.getGlobalTransactionId().length, false},
+                {28 + 1 + XID0.getGlobalTransactionId().length + 4, false}
         });
     }
 
@@ -69,15 +73,12 @@ public class DiskJournalCorruptionTest {
         TestUtils.deleteJournalFiles(conf, false);
         TransactionManagerServices.getConfiguration().getDiskConfiguration().setSkipCorruptedLogs(true);
 
-        Xid xid0 = new MockXid(0, UidGenerator.generateUid().getArray(), BitronixXid.FORMAT_ID);
-        Xid xid1 = new MockXid(1, UidGenerator.generateUid().getArray(), BitronixXid.FORMAT_ID);
-
         Set names = new HashSet();
         names.add("trx0");
         names.add("trx1");
 
-        Uid gtrid0 = new Uid(xid0.getGlobalTransactionId());
-        Uid gtrid1 = new Uid(xid1.getGlobalTransactionId());
+        Uid gtrid0 = new Uid(XID0.getGlobalTransactionId());
+        Uid gtrid1 = new Uid(XID1.getGlobalTransactionId());
 
         journal = new DiskJournal(conf);
         journal.open();

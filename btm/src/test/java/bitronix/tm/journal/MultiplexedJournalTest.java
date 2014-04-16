@@ -31,7 +31,7 @@ import static org.junit.Assert.assertTrue;
 @RunWith(Parameterized.class)
 public class MultiplexedJournalTest extends BaseRecoveryTest {
 
-    boolean corruptPrimary;
+    private boolean corruptPrimary;
 
     public MultiplexedJournalTest(boolean corruptPrimary) {
         this.corruptPrimary = corruptPrimary;

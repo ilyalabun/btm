@@ -37,6 +37,9 @@ public class TransactionLogCursor {
 
     private final static Logger log = LoggerFactory.getLogger(TransactionLogCursor.class);
 
+    private static final long INF = Long.MAX_VALUE;
+    private static final long MINUS_INF = Long.MIN_VALUE;
+
     // private final RandomAccessFile randomAccessFile;
     private FileInputStream fis;
     private FileChannel fileChannel;
@@ -103,8 +106,8 @@ public class TransactionLogCursor {
 
         final int endOfRecordPosition = page.position() + recordLength;
         if (status < 0) {
-            skipRecord(endOfRecordPosition);
-            throw new CorruptedTransactionLogException("Status is negative. Record is corrupted");
+            skipRecord(endOfRecordPosition, 0);
+            throw new CorruptedTransactionLogException(String.format("Status is negative on position %s. Record is corrupted", currentPosition - 8));
         }
 
         if (currentPosition + recordLength > endPosition) {
@@ -115,20 +118,21 @@ public class TransactionLogCursor {
                     + endPosition + ", recordLength: " + recordLength + ")");
         }
 
+
         currentPosition += 4;
-        final int headerLength = readNonNegativeInt(endOfRecordPosition);
+        final int headerLength = readInt(endOfRecordPosition, 1, INF, "header length");
 
         currentPosition += 8;
-        final long time = readNonNegativeLong(endOfRecordPosition);
+        final long time = readLong(endOfRecordPosition, 1, INF, "time");
 
         currentPosition += 4;
-        final int sequenceNumber = readNonNegativeInt(endOfRecordPosition);
+        final int sequenceNumber = readInt(endOfRecordPosition, 1, INF, "sequence number");
 
         currentPosition += 4;
         final int crc32 = page.getInt();
 
         currentPosition += 1;
-        final byte gtridSize = readNonNegativeByte(endOfRecordPosition);
+        final byte gtridSize = readByte(endOfRecordPosition, 1, 64, "gtrid size");
 
         // check for log terminator
         page.mark();
@@ -153,14 +157,14 @@ public class TransactionLogCursor {
         page.get(gtridArray);
         currentPosition += gtridSize;
         Uid gtrid = new Uid(gtridArray);
-        final int uniqueNamesCount = readNonNegativeInt(endOfRecordPosition);
         currentPosition += 4;
+        final int uniqueNamesCount = readInt(endOfRecordPosition, 0, INF, "unique names count");
         Set<String> uniqueNames = new HashSet<String>();
         int currentReadCount = 4 + 8 + 4 + 4 + 1 + gtridSize + 4;
 
         for (int i = 0; i < uniqueNamesCount; i++) {
-            int length = readNonNegativeShort(endOfRecordPosition);
             currentPosition += 2;
+            int length = readShort(endOfRecordPosition, 1, INF, String.format("length of name %s", i));
 
             // check that names aren't too long
             currentReadCount += 2 + length;
@@ -192,7 +196,7 @@ public class TransactionLogCursor {
         return tlog;
     }
 
-    private void skipRecord(int endOfRecordPosition) {
+    private void skipRecord(int endOfRecordPosition, int fieldLength) {
         currentPosition += endOfRecordPosition - page.position();
         page.position(endOfRecordPosition);
     }
@@ -206,43 +210,69 @@ public class TransactionLogCursor {
         fileChannel.close();
     }
 
-    private int readNonNegativeInt(int endOfRecordPosition) throws CorruptedTransactionLogException {
+    private int readInt(int endOfRecordPosition, long lowerBound, long upperBound, String fieldName) throws CorruptedTransactionLogException {
         final int value = page.getInt();
-        if (value < 0) {
-            skipRecord(endOfRecordPosition);
-            throw new CorruptedTransactionLogException(String.format("Int value %s < 0 . Record is possibly corrupted.", value));
+
+        if (isOutOfBounds(value, lowerBound, upperBound)) {
+            reportError(fieldName, endOfRecordPosition, value, Integer.SIZE / 8, lowerBound, upperBound);
         }
 
         return value;
     }
 
-    private long readNonNegativeLong(int endOfRecordPosition) throws CorruptedTransactionLogException {
+    private long readLong(int endOfRecordPosition, long lowerBound, long upperBound, String fieldName) throws CorruptedTransactionLogException {
         final long value = page.getLong();
-        if (value < 0) {
-            skipRecord(endOfRecordPosition);
-            throw new CorruptedTransactionLogException(String.format("Long value %s < 0. Record is possibly corrupted.", value));
+        if (isOutOfBounds(value, lowerBound, upperBound)) {
+            reportError(fieldName, endOfRecordPosition, value, Long.SIZE / 8, lowerBound, upperBound);
         }
 
         return value;
     }
 
-    private byte readNonNegativeByte(int endOfRecordPosition) throws CorruptedTransactionLogException {
+    private byte readByte(int endOfRecordPosition, long lowerBound, long upperBound, String fieldName) throws CorruptedTransactionLogException {
         final byte value = page.get();
-        if (value < 0) {
-            skipRecord(endOfRecordPosition);
-            throw new CorruptedTransactionLogException(String.format("Byte value %s < 0. Record is possibly corrupted.", value));
+        if (isOutOfBounds(value, lowerBound, upperBound)) {
+            reportError(fieldName, endOfRecordPosition, value, Byte.SIZE / 8, lowerBound, upperBound);
         }
 
         return value;
     }
 
-    private short readNonNegativeShort(int endOfRecordPosition) throws CorruptedTransactionLogException {
+    private short readShort(int endOfRecordPosition, long lowerBound, long upperBound, String fieldName) throws CorruptedTransactionLogException {
         final short value = page.getShort();
-        if (value < 0) {
-            skipRecord(endOfRecordPosition);
-            throw new CorruptedTransactionLogException(String.format("Short value %s < 0. Record is possibly corrupted.", value));
+        if (isOutOfBounds(value, lowerBound, upperBound)) {
+            reportError(fieldName, endOfRecordPosition, value, Short.SIZE / 8, lowerBound, upperBound);
         }
 
         return value;
+    }
+
+    private void reportError(String fieldName, int endOfRecordPosition, long value,
+                             int fieldLength, long lowerBound, long upperBound) throws CorruptedTransactionLogException {
+        skipRecord(endOfRecordPosition, fieldLength);
+        throw new CorruptedTransactionLogException(String.format(
+                "Record field [%s] with value %s on position %s is out of its bounds [%s, %s]",
+                fieldName, value, currentPosition - fieldLength,
+                lowerBound == MINUS_INF? "-inf": lowerBound,
+                upperBound == INF? "inf": upperBound));
+    }
+
+    /**
+     * Checks if some value is out of its bounds.
+     * Value is out of its bounds when <code>value < lowerBound || value > upperBound</code>
+     *
+     * @param value value to check.
+     * @param lowerBound lower bound.
+     * @param upperBound upper bound.
+     * @return true if <code>value</code> is out of its bounds.
+     */
+    private boolean isOutOfBounds(long value, long lowerBound, long upperBound) {
+        if (lowerBound > upperBound)
+            throw new IllegalArgumentException(String.format("Lower bound %s is greater than upper bound %s", lowerBound, upperBound));
+
+        if (value < lowerBound || value > upperBound)
+            return true;
+
+        return false;
     }
 }
