@@ -24,6 +24,7 @@ import java.util.*;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * @author Ilya Labun
@@ -63,6 +64,19 @@ public class MultiplexedJournalTest extends BaseRecoveryTest {
 
     @Test
     public void testThrowsExceptionWhenSameRecordsCorrupted() throws Exception {
+        Xid xid0 = new MockXid(1, UidGenerator.generateUid().getArray(), BitronixXid.FORMAT_ID);
+
+        Set names = new HashSet();
+        names.add(pds.getUniqueName());
+        final Uid gtrid = new Uid(xid0.getGlobalTransactionId());
+        journal.open();
+        journal.log(Status.STATUS_COMMITTING, gtrid, names);
+        journal.log(Status.STATUS_COMMITTED, gtrid, names);
+        journal.force();
+        journal.close();
+        TestUtils.deleteJournalFiles(TransactionManagerServices.getConfiguration().getPrimaryDiskConfiguration(), true);
+
+        journal.open();
         testCorruptedJournal(new JournalCorrupter() {
             public void corrupt(Journal diskJournal, DiskJournalConfiguration diskConfiguration) throws IOException {
                 RandomAccessFile file = new RandomAccessFile(diskConfiguration.getLogPart1Filename(), "rw");
@@ -84,7 +98,10 @@ public class MultiplexedJournalTest extends BaseRecoveryTest {
             journal.collectAllRecords();
         } catch (IOException e) {
             assertTrue(e.getMessage().contains("Both journals have same corrupted records."));
+            return;
         }
+
+        fail("IOException was not thrown");
     }
 
     @Test
