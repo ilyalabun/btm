@@ -16,6 +16,7 @@
 package bitronix.tm.twopc;
 
 import bitronix.tm.BitronixTransactionManager;
+import bitronix.tm.ServicesInstance;
 import bitronix.tm.TransactionManagerServices;
 import bitronix.tm.journal.Journal;
 import bitronix.tm.mock.AbstractMockJdbcTest;
@@ -137,9 +138,9 @@ public class OnePcFailureTest extends TestCase {
         EventRecorder.clear();
 
         // change disk journal into mock journal
-        Field field = TransactionManagerServices.class.getDeclaredField("journalRef");
+        Field field = ServicesInstance.class.getDeclaredField("journalRef");
         field.setAccessible(true);
-        AtomicReference<Journal> journalRef = (AtomicReference<Journal>) field.get(TransactionManagerServices.class);
+        AtomicReference<Journal> journalRef = (AtomicReference<Journal>) field.get(TransactionManagerServices.getAttachedServicesOrDefault());
         journalRef.set(new MockJournal());
 
 

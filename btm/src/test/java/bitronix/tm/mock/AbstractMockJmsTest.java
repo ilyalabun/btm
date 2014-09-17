@@ -15,6 +15,7 @@
  */
 package bitronix.tm.mock;
 
+import bitronix.tm.ServicesInstance;
 import bitronix.tm.TransactionManagerServices;
 import bitronix.tm.journal.Journal;
 import bitronix.tm.mock.events.EventRecorder;
@@ -60,9 +61,9 @@ public abstract class AbstractMockJmsTest extends TestCase {
         poolingConnectionFactory2.init();
 
         // change disk journal into mock journal
-        Field field = TransactionManagerServices.class.getDeclaredField("journalRef");
+        Field field = ServicesInstance.class.getDeclaredField("journalRef");
         field.setAccessible(true);
-        AtomicReference<Journal> journalRef = (AtomicReference<Journal>) field.get(TransactionManagerServices.class);
+        AtomicReference<Journal> journalRef = (AtomicReference<Journal>) field.get(TransactionManagerServices.getAttachedServicesOrDefault());
         journalRef.set(new MockJournal());
 
         TransactionManagerServices.getConfiguration().setGracefulShutdownInterval(2);

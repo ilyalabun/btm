@@ -15,30 +15,20 @@
  */
 package bitronix.tm;
 
-import bitronix.tm.journal.DiskJournal;
-import bitronix.tm.journal.MultiplexedJournal;
 import bitronix.tm.journal.Journal;
-import bitronix.tm.journal.NullJournal;
 import bitronix.tm.recovery.Recoverer;
 import bitronix.tm.resource.ResourceLoader;
 import bitronix.tm.timer.TaskScheduler;
-import bitronix.tm.twopc.executor.AsyncExecutor;
 import bitronix.tm.twopc.executor.Executor;
-import bitronix.tm.twopc.executor.SyncExecutor;
-import bitronix.tm.utils.ClassLoaderUtils;
-import bitronix.tm.utils.DefaultExceptionAnalyzer;
 import bitronix.tm.utils.ExceptionAnalyzer;
-import bitronix.tm.utils.InitializationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Container for all BTM services.
- * <p>The different services available are: {@link BitronixTransactionManager}, {@link BitronixTransactionSynchronizationRegistry}
+ * Container for all BTM key2services.
+ * <p>The different key2services available are: {@link BitronixTransactionManager}, {@link BitronixTransactionSynchronizationRegistry}
  * {@link Configuration}, {@link Journal}, {@link TaskScheduler}, {@link ResourceLoader}, {@link Recoverer} and {@link Executor}.
  * They are used in all places of the TM so they must be globally reachable.</p>
  *
@@ -48,32 +38,51 @@ public class TransactionManagerServices {
 
     private final static Logger log = LoggerFactory.getLogger(TransactionManagerServices.class);
 
-    private static final Lock transactionManagerLock = new ReentrantLock();
-    private static volatile BitronixTransactionManager transactionManager;
+    private static final String DEFAULT_KEY = "DEFAULT_KEY";
 
-    private static final AtomicReference<BitronixTransactionSynchronizationRegistry> transactionSynchronizationRegistryRef = new AtomicReference<BitronixTransactionSynchronizationRegistry>();
-    private static final AtomicReference<Configuration> configurationRef = new AtomicReference<Configuration>();
-    private static final AtomicReference<Journal> journalRef = new AtomicReference<Journal>();
-    private static final AtomicReference<TaskScheduler> taskSchedulerRef = new AtomicReference<TaskScheduler>();
-    private static final AtomicReference<ResourceLoader> resourceLoaderRef = new AtomicReference<ResourceLoader>();
-    private static final AtomicReference<Recoverer> recovererRef = new AtomicReference<Recoverer>();
-    private static final AtomicReference<Executor> executorRef = new AtomicReference<Executor>();
-    private static final AtomicReference<ExceptionAnalyzer> exceptionAnalyzerRef = new AtomicReference<ExceptionAnalyzer>();
+    private static final Object MAPS_LOCK = new Object();
+
+    private static ConcurrentHashMap<String, ServicesInstance> key2services = new ConcurrentHashMap<String, ServicesInstance>();
+    private static ThreadLocal<ServicesInstance> servicesInstances = new ThreadLocal<ServicesInstance>();
+
+    public static ServicesInstance attachToServices(String key) {
+        final ServicesInstance currentInstance = servicesInstances.get();
+        if (currentInstance != null) {
+            log.warn(String.format("Thread %s is trying to attach itself to services twice. Key=%s", Thread.currentThread().getName(), key));
+            if (!key.equals(currentInstance.getKey())) {
+                throw new IllegalArgumentException(String.format("Thread %s is trying to attach itself to another key %s. Current key=%s",
+                        Thread.currentThread().getName(), key, currentInstance.getKey()));
+
+            }
+
+            return currentInstance;
+        }
+
+
+        final ServicesInstance newInstance = new ServicesInstance(key);
+        final ServicesInstance oldInstance = key2services.putIfAbsent(key, newInstance);
+        final ServicesInstance instance = oldInstance == null ? newInstance : oldInstance;
+        servicesInstances.set(instance);
+        return instance;
+    }
+
+    public static ServicesInstance getAttachedServices() {
+        return servicesInstances.get();
+    }
+
+    public static ServicesInstance getAttachedServicesOrDefault() {
+        final ServicesInstance attachedServices = getAttachedServices();
+        if (attachedServices == null)
+            return attachToServices(DEFAULT_KEY);
+        return attachedServices;
+    }
 
     /**
      * Create an initialized transaction manager.
      * @return the transaction manager.
      */
     public static BitronixTransactionManager getTransactionManager() {
-        transactionManagerLock.lock();
-        try {
-            if (transactionManager == null) {
-                transactionManager = new BitronixTransactionManager();
-            }
-            return transactionManager;
-        } finally {
-            transactionManagerLock.unlock();
-        }
+        return getAttachedServicesOrDefault().getTransactionManager();
     }
 
     /**
@@ -81,14 +90,7 @@ public class TransactionManagerServices {
      * @return the TransactionSynchronizationRegistry.
      */
     public static BitronixTransactionSynchronizationRegistry getTransactionSynchronizationRegistry() {
-        BitronixTransactionSynchronizationRegistry transactionSynchronizationRegistry = transactionSynchronizationRegistryRef.get();
-        if (transactionSynchronizationRegistry == null) {
-            transactionSynchronizationRegistry = new BitronixTransactionSynchronizationRegistry();
-            if (!transactionSynchronizationRegistryRef.compareAndSet(null, transactionSynchronizationRegistry)) {
-                transactionSynchronizationRegistry = transactionSynchronizationRegistryRef.get();
-            }
-        }
-        return transactionSynchronizationRegistry;
+        return getAttachedServicesOrDefault().getTransactionSynchronizationRegistry();
     }
 
     /**
@@ -96,14 +98,7 @@ public class TransactionManagerServices {
      * @return the global configuration.
      */
     public static Configuration getConfiguration() {
-        Configuration configuration = configurationRef.get();
-        if (configuration == null) {
-            configuration = new Configuration();
-            if (!configurationRef.compareAndSet(null, configuration)) {
-                configuration = configurationRef.get();
-            }
-        }
-        return configuration;
+        return getAttachedServicesOrDefault().getConfiguration();
     }
 
     /**
@@ -111,26 +106,7 @@ public class TransactionManagerServices {
      * @return the transactions journal.
      */
     public static Journal getJournal() {
-        Journal journal = journalRef.get();
-        if (journal == null) {
-            String configuredJournal = getConfiguration().getJournal();
-            if ("multiplexed".equals(configuredJournal)) {
-                String primaryJournal = getConfiguration().getPrimaryJournal();
-                String secondaryJournal = getConfiguration().getSecondaryJournal();
-
-                journal = new MultiplexedJournal(
-                        createJournal(primaryJournal, getConfiguration().getPrimaryDiskConfiguration()),
-                        createJournal(secondaryJournal, getConfiguration().getSecondaryDiskConfiguration()));
-            } else {
-                journal = createJournal(configuredJournal, getConfiguration().getDiskConfiguration());
-            }
-
-            if (log.isDebugEnabled()) { log.debug("using journal " + journal); }
-            if (!journalRef.compareAndSet(null, journal)) {
-                journal = journalRef.get();
-            }
-        }
-        return journal;
+        return getAttachedServicesOrDefault().getJournal();
     }
 
     /**
@@ -138,16 +114,7 @@ public class TransactionManagerServices {
      * @return the task scheduler.
      */
     public static TaskScheduler getTaskScheduler() {
-        TaskScheduler taskScheduler = taskSchedulerRef.get();
-        if (taskScheduler == null) {
-            taskScheduler = new TaskScheduler();
-            if (!taskSchedulerRef.compareAndSet(null, taskScheduler)) {
-                taskScheduler = taskSchedulerRef.get();
-            } else {
-                taskScheduler.start();
-            }
-        }
-        return taskScheduler;
+        return getAttachedServicesOrDefault().getTaskScheduler();
     }
 
     /**
@@ -155,14 +122,7 @@ public class TransactionManagerServices {
      * @return the resource loader.
      */
     public static ResourceLoader getResourceLoader() {
-        ResourceLoader resourceLoader = resourceLoaderRef.get();
-        if (resourceLoader == null) {
-            resourceLoader = new ResourceLoader();
-            if (!resourceLoaderRef.compareAndSet(null, resourceLoader)) {
-                resourceLoader = resourceLoaderRef.get();
-            }
-        }        
-        return resourceLoader;
+        return getAttachedServicesOrDefault().getResourceLoader();
     }
 
     /**
@@ -170,14 +130,7 @@ public class TransactionManagerServices {
      * @return the transaction recoverer.
      */
     public static Recoverer getRecoverer() {
-        Recoverer recoverer = recovererRef.get();
-        if (recoverer == null) {
-            recoverer = new Recoverer();
-            if (!recovererRef.compareAndSet(null, recoverer)) {
-                recoverer = recovererRef.get();
-            }
-        }
-        return recoverer;
+        return getAttachedServicesOrDefault().getRecoverer();
     }
 
     /**
@@ -185,21 +138,7 @@ public class TransactionManagerServices {
      * @return the 2PC executor.
      */
     public static Executor getExecutor() {
-        Executor executor = executorRef.get();
-        if (executor == null) {
-            if (getConfiguration().isAsynchronous2Pc()) {
-                if (log.isDebugEnabled()) { log.debug("using AsyncExecutor"); }
-                executor = new AsyncExecutor();
-            } else {
-                if (log.isDebugEnabled()) { log.debug("using SyncExecutor"); }
-                executor = new SyncExecutor();
-            }
-            if (!executorRef.compareAndSet(null, executor)) {
-                executor.shutdown();
-                executor = executorRef.get();
-            }
-        }
-        return executor;
+        return getAttachedServicesOrDefault().getExecutor();
     }
 
     /**
@@ -207,31 +146,15 @@ public class TransactionManagerServices {
      * @return the exception analyzer.
      */
    public static ExceptionAnalyzer getExceptionAnalyzer() {
-        ExceptionAnalyzer analyzer = exceptionAnalyzerRef.get();
-        if (analyzer == null) {
-            String exceptionAnalyzerName = getConfiguration().getExceptionAnalyzer();
-            analyzer = new DefaultExceptionAnalyzer();
-            if (exceptionAnalyzerName != null) {
-                try {
-                    analyzer = (ExceptionAnalyzer) ClassLoaderUtils.loadClass(exceptionAnalyzerName).newInstance();
-                } catch (Exception ex) {
-                    log.warn("failed to initialize custom exception analyzer, using default one instead", ex);
-                }
-            }
-            if (!exceptionAnalyzerRef.compareAndSet(null, analyzer)) {
-                analyzer.shutdown();
-                analyzer = exceptionAnalyzerRef.get();
-            }
-        }
-        return analyzer;
-    }
+       return getAttachedServicesOrDefault().getExceptionAnalyzer();
+   }
 
     /**
      * Check if the transaction manager has started.
      * @return true if the transaction manager has started.
      */
     public static boolean isTransactionManagerRunning() {
-        return transactionManager != null;
+        return getAttachedServicesOrDefault().isTransactionManagerRunning();
     }
 
     /**
@@ -239,37 +162,15 @@ public class TransactionManagerServices {
      * @return true if the task scheduler has started.
      */
     public static boolean isTaskSchedulerRunning() {
-        return taskSchedulerRef.get() != null;
+        return getAttachedServicesOrDefault().isTaskSchedulerRunning();
     }
 
     /**
      * Clear services references. Called at the end of the shutdown procedure.
      */
-    protected static synchronized void clear() {
-        transactionManager = null;
-
-        transactionSynchronizationRegistryRef.set(null);
-        configurationRef.set(null);
-        journalRef.set(null);
-        taskSchedulerRef.set(null);
-        resourceLoaderRef.set(null);
-        recovererRef.set(null);
-        executorRef.set(null);
-        exceptionAnalyzerRef.set(null);
-    }
-
-    private static Journal createJournal(String configuredJournal, DiskJournalConfiguration diskJournalConfiguration) {
-        if ("null".equals(configuredJournal) || null == configuredJournal) {
-            return new NullJournal();
-        } else if ("disk".equals(configuredJournal)) {
-            return new DiskJournal(diskJournalConfiguration);
-        } else {
-            try {
-                Class<?> clazz = ClassLoaderUtils.loadClass(configuredJournal);
-                return (Journal) clazz.newInstance();
-            } catch (Exception ex) {
-                throw new InitializationException("invalid journal implementation '" + configuredJournal + "'", ex);
-            }
+    protected static void clear() {
+        for (ServicesInstance instance: key2services.values()) {
+            instance.clear();
         }
     }
 }

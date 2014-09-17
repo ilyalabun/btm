@@ -16,6 +16,7 @@
 package bitronix.tm.mock;
 
 import bitronix.tm.BitronixTransactionManager;
+import bitronix.tm.ServicesInstance;
 import bitronix.tm.TransactionManagerServices;
 import bitronix.tm.internal.BitronixXAException;
 import bitronix.tm.journal.Journal;
@@ -64,9 +65,9 @@ public class DelistmentTest extends TestCase {
         }
 
         // change disk journal into mock journal
-        Field field = TransactionManagerServices.class.getDeclaredField("journalRef");
+        Field field = ServicesInstance.class.getDeclaredField("journalRef");
         field.setAccessible(true);
-        AtomicReference<Journal> journalRef = (AtomicReference<Journal>) field.get(TransactionManagerServices.class);
+        AtomicReference<Journal> journalRef = (AtomicReference<Journal>) field.get(TransactionManagerServices.getAttachedServicesOrDefault());
         journalRef.set(new MockJournal());
 
         poolingDataSource1 = new PoolingDataSource();

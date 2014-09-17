@@ -18,12 +18,12 @@ package bitronix.tm;
 import bitronix.tm.internal.BitronixSystemException;
 import bitronix.tm.internal.ThreadContext;
 import bitronix.tm.internal.XAResourceManager;
-import bitronix.tm.utils.ClassLoaderUtils;
-import bitronix.tm.utils.Decoder;
-import bitronix.tm.utils.InitializationException;
-import bitronix.tm.utils.MonotonicClock;
-import bitronix.tm.utils.Scheduler;
-import bitronix.tm.utils.Service;
+import bitronix.tm.journal.Journal;
+import bitronix.tm.recovery.Recoverer;
+import bitronix.tm.resource.ResourceLoader;
+import bitronix.tm.timer.TaskScheduler;
+import bitronix.tm.twopc.executor.Executor;
+import bitronix.tm.utils.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -67,6 +67,15 @@ public class BitronixTransactionManager implements TransactionManager, UserTrans
     private final SortedMap<BitronixTransaction, ClearContextSynchronization> inFlightTransactions;
 
     private volatile boolean shuttingDown;
+
+    private final AtomicReference<BitronixTransactionSynchronizationRegistry> transactionSynchronizationRegistryRef = new AtomicReference<BitronixTransactionSynchronizationRegistry>();
+    private final AtomicReference<Configuration> configurationRef = new AtomicReference<Configuration>();
+    private final AtomicReference<Journal> journalRef = new AtomicReference<Journal>();
+    private final AtomicReference<TaskScheduler> taskSchedulerRef = new AtomicReference<TaskScheduler>();
+    private final AtomicReference<ResourceLoader> resourceLoaderRef = new AtomicReference<ResourceLoader>();
+    private final AtomicReference<Recoverer> recovererRef = new AtomicReference<Recoverer>();
+    private final AtomicReference<Executor> executorRef = new AtomicReference<Executor>();
+    private final AtomicReference<ExceptionAnalyzer> exceptionAnalyzerRef = new AtomicReference<ExceptionAnalyzer>();
 
     /**
      * Create the {@link BitronixTransactionManager}. Open the journal, load resources and perform recovery

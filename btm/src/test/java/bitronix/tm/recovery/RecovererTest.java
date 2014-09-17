@@ -263,9 +263,9 @@ public class RecovererTest extends BaseRecoveryTest {
     @Test
     public void testBackgroundRecovererSkippingInFlightTransactions() throws Exception {
         // change disk journal into mock journal
-        Field field = TransactionManagerServices.class.getDeclaredField("journalRef");
+        Field field = ServicesInstance.class.getDeclaredField("journalRef");
         field.setAccessible(true);
-        AtomicReference<Journal> journalRef = (AtomicReference<Journal>) field.get(TransactionManagerServices.class);
+        AtomicReference<Journal> journalRef = (AtomicReference<Journal>) field.get(TransactionManagerServices.getAttachedServicesOrDefault());
         journalRef.set(new MockJournal());
 
         pds.setMaxPoolSize(2);

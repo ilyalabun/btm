@@ -15,6 +15,7 @@
  */
 package bitronix.tm.mock;
 
+import bitronix.tm.ServicesInstance;
 import bitronix.tm.TransactionManagerServices;
 import bitronix.tm.journal.Journal;
 import bitronix.tm.mock.events.ConnectionDequeuedEvent;
@@ -79,10 +80,10 @@ public abstract class AbstractMockJdbcTest extends TestCase {
         poolingDataSource2.init();
 
         // change disk journal into mock journal
-        Field field = TransactionManagerServices.class.getDeclaredField("journalRef");
+        Field field = ServicesInstance.class.getDeclaredField("journalRef");
         field.setAccessible(true);
         @SuppressWarnings("unchecked")
-        AtomicReference<Journal> journalRef = (AtomicReference<Journal>) field.get(TransactionManagerServices.class);
+        AtomicReference<Journal> journalRef = (AtomicReference<Journal>) field.get(TransactionManagerServices.getAttachedServicesOrDefault());
         journalRef.set(new MockJournal());
 
         // change connection pools into mock pools
