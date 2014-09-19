@@ -65,6 +65,7 @@ public class TransactionManagerServices {
         final ServicesInstance oldInstance = key2services.putIfAbsent(key, newInstance);
         final ServicesInstance instance = oldInstance == null ? newInstance : oldInstance;
         servicesInstances.set(instance);
+        log.info(String.format("Thread %s is attached to Bitronix instance %s", Thread.currentThread().getName(), key));
         return instance;
     }
 
