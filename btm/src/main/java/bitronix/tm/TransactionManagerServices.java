@@ -24,6 +24,9 @@ import bitronix.tm.utils.ExceptionAnalyzer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -58,7 +61,6 @@ public class TransactionManagerServices {
             return currentInstance;
         }
 
-
         final ServicesInstance newInstance = new ServicesInstance(key);
         final ServicesInstance oldInstance = key2services.putIfAbsent(key, newInstance);
         final ServicesInstance instance = oldInstance == null ? newInstance : oldInstance;
@@ -66,8 +68,16 @@ public class TransactionManagerServices {
         return instance;
     }
 
+    public static Enumeration<String> getAllInstancesKeys() {
+        return key2services.keys();
+    }
+
     public static ServicesInstance getAttachedServices() {
         return servicesInstances.get();
+    }
+
+    public static boolean isAttachedToServices() {
+        return servicesInstances.get() != null;
     }
 
     public static ServicesInstance getAttachedServicesOrDefault() {
