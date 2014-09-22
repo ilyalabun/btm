@@ -16,6 +16,7 @@
 package bitronix.tm.recovery;
 
 import bitronix.tm.BitronixXid;
+import bitronix.tm.ServicesInstance;
 import bitronix.tm.TransactionManagerServices;
 import bitronix.tm.internal.XAResourceHolderState;
 import bitronix.tm.journal.JournalRecord;
@@ -97,10 +98,14 @@ public class Recoverer implements Runnable, Service, RecovererMBean {
     private volatile int executionsCount;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private final String jmxName;
-
+    private final String bitronixInstance;
 
     public Recoverer() {
         String serverId = TransactionManagerServices.getConfiguration().getServerId();
+        ServicesInstance attachedServices = TransactionManagerServices.getAttachedServices();
+        if (attachedServices == null)
+            throw new IllegalStateException(String.format("Thread %s is not attached to any bitronix instance", Thread.currentThread().getName()));
+        bitronixInstance = attachedServices.getKey();
         if (serverId == null) serverId = "";
         this.jmxName = "bitronix.tm:type=Recoverer,ServerId=" + ManagementRegistrar.makeValidName(serverId);
         ManagementRegistrar.register(jmxName, this);
@@ -115,6 +120,8 @@ public class Recoverer implements Runnable, Service, RecovererMBean {
      * call it manually.
      */
     public void run() {
+        Thread.currentThread().setName(Thread.currentThread().getName() + "_" + bitronixInstance);
+        TransactionManagerServices.attachToServices(bitronixInstance);
         if (!isRunning.compareAndSet(false, true)) {
             log.info("recoverer is already running, abandoning this recovery request");
             return;
