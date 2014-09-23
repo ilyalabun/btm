@@ -98,14 +98,9 @@ public class Recoverer implements Runnable, Service, RecovererMBean {
     private volatile int executionsCount;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private final String jmxName;
-    private final String bitronixInstance;
 
     public Recoverer() {
         String serverId = TransactionManagerServices.getConfiguration().getServerId();
-        ServicesInstance attachedServices = TransactionManagerServices.getAttachedServices();
-        if (attachedServices == null)
-            throw new IllegalStateException(String.format("Thread %s is not attached to any bitronix instance", Thread.currentThread().getName()));
-        bitronixInstance = attachedServices.getKey();
         if (serverId == null) serverId = "";
         this.jmxName = "bitronix.tm:type=Recoverer,ServerId=" + ManagementRegistrar.makeValidName(serverId);
         ManagementRegistrar.register(jmxName, this);
@@ -120,13 +115,10 @@ public class Recoverer implements Runnable, Service, RecovererMBean {
      * call it manually.
      */
     public void run() {
-        Thread.currentThread().setName(Thread.currentThread().getName() + "_" + bitronixInstance);
-        TransactionManagerServices.attachToServices(bitronixInstance);
         if (!isRunning.compareAndSet(false, true)) {
             log.info("recoverer is already running, abandoning this recovery request");
             return;
         }
-
         try {
             committedCount = 0;
             rolledbackCount = 0;
@@ -164,7 +156,7 @@ public class Recoverer implements Runnable, Service, RecovererMBean {
             else if (log.isDebugEnabled()) {
                 log.debug("recovery committed " + committedCount + " dangling transaction(s) and rolled back " + rolledbackCount +
                         " aborted transaction(s) on " + registeredResources.size() + " resource(s) [" + getRegisteredResourcesUniqueNames() + "]" +
-                        ((TransactionManagerServices.getConfiguration().isCurrentNodeOnlyRecovery()) ? " (restricted to serverId '" + TransactionManagerServices.getConfiguration().getServerId() + "')" : ""));                
+                        ((TransactionManagerServices.getConfiguration().isCurrentNodeOnlyRecovery()) ? " (restricted to serverId '" + TransactionManagerServices.getConfiguration().getServerId() + "')" : ""));
             }
             this.completionException = null;
         } catch (Exception ex) {
@@ -229,22 +221,25 @@ public class Recoverer implements Runnable, Service, RecovererMBean {
             String uniqueName = entry.getKey();
             XAResourceProducer producer = entry.getValue();
 
-            try {
-                if (log.isDebugEnabled()) { log.debug("performing recovery on " + uniqueName); }
-                Set<BitronixXid> xids = recover(producer);
-                if (log.isDebugEnabled()) { log.debug("recovered " + xids.size() + " XID(s) from resource " + uniqueName); }
-                recoveredXidSets.put(uniqueName, xids);
-                producer.setFailed(false);
-            } catch (XAException ex) {
-                producer.setFailed(true);
-                registeredResources.remove(uniqueName);
-                String extraErrorDetails = TransactionManagerServices.getExceptionAnalyzer().extractExtraXAExceptionDetails(ex);
-                log.warn("error running recovery on resource '" + uniqueName + "', resource marked as failed (background recoverer will retry recovery)" +
-                        " (error=" + Decoder.decodeXAExceptionErrorCode(ex) + ")" + (extraErrorDetails == null ? "" : ", extra error=" + extraErrorDetails), ex);
-            } catch (Exception ex) {
-                producer.setFailed(true);
-                registeredResources.remove(uniqueName);
-                log.warn("error running recovery on resource '" + uniqueName + "', resource marked as failed (background recoverer will retry recovery)", ex);
+            //noinspection SynchronizationOnLocalVariableOrMethodParameter
+            synchronized (producer) {
+                try {
+                    if (log.isDebugEnabled()) { log.debug("performing recovery on " + uniqueName); }
+                    Set<BitronixXid> xids = recover(producer);
+                    if (log.isDebugEnabled()) { log.debug("recovered " + xids.size() + " XID(s) from resource " + uniqueName); }
+                    recoveredXidSets.put(uniqueName, xids);
+                    producer.setFailed(false);
+                } catch (XAException ex) {
+                    producer.setFailed(true);
+                    registeredResources.remove(uniqueName);
+                    String extraErrorDetails = TransactionManagerServices.getExceptionAnalyzer().extractExtraXAExceptionDetails(ex);
+                    log.warn("error running recovery on resource '" + uniqueName + "', resource marked as failed (background recoverer will retry recovery)" +
+                            " (error=" + Decoder.decodeXAExceptionErrorCode(ex) + ")" + (extraErrorDetails == null ? "" : ", extra error=" + extraErrorDetails), ex);
+                } catch (Exception ex) {
+                    producer.setFailed(true);
+                    registeredResources.remove(uniqueName);
+                    log.warn("error running recovery on resource '" + uniqueName + "', resource marked as failed (background recoverer will retry recovery)", ex);
+                }
             }
         }
     }

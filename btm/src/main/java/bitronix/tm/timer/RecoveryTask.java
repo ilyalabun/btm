@@ -33,9 +33,12 @@ public class RecoveryTask extends Task {
 
     private final Recoverer recoverer;
 
-    public RecoveryTask(Recoverer recoverer, Date executionTime, TaskScheduler scheduler) {
+    private final String bitronixInstance;
+
+    public RecoveryTask(Recoverer recoverer, String bitronixInstance, Date executionTime, TaskScheduler scheduler) {
         super(executionTime, scheduler);
         this.recoverer = recoverer;
+        this.bitronixInstance = bitronixInstance;
     }
 
     public Object getObject() {
@@ -44,7 +47,14 @@ public class RecoveryTask extends Task {
 
     public void execute() throws TaskException {
         if (log.isDebugEnabled()) { log.debug("running recovery"); }
-        Thread recovery = new Thread(recoverer);
+        Thread recovery = new Thread(new Runnable() {
+            public void run() {
+                Thread.currentThread().setName(Thread.currentThread().getName() + "_" + bitronixInstance);
+                TransactionManagerServices.attachToServices(bitronixInstance);
+                recoverer.run();
+                TransactionManagerServices.detachFromServices();
+            }
+        });
         recovery.setName("bitronix-recovery-thread");
         recovery.setDaemon(true);
         recovery.setPriority(Thread.NORM_PRIORITY -1);

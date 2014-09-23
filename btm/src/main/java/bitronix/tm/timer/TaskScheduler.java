@@ -16,6 +16,7 @@
 package bitronix.tm.timer;
 
 import bitronix.tm.BitronixTransaction;
+import bitronix.tm.ServicesInstance;
 import bitronix.tm.TransactionManagerServices;
 import bitronix.tm.recovery.Recoverer;
 import bitronix.tm.resource.common.XAPool;
@@ -46,12 +47,17 @@ public class TaskScheduler extends Thread implements Service {
     private final SortedSet<Task> tasks;
     private final Lock tasksLock;
     private final AtomicBoolean active = new AtomicBoolean(true);
+    private final String bitronixInstance;
 
     public TaskScheduler() {
         // it is up to the ShutdownHandler to control the lifespan of the JVM and give some time for this thread
         // to die gracefully, meaning enough time for all tasks to get executed. This is why it is set as daemon.
+        ServicesInstance attachedServices = TransactionManagerServices.getAttachedServices();
+        if (attachedServices == null)
+            throw new IllegalStateException(String.format("Thread %s is not attached to any services", Thread.currentThread().getName()));
+        this.bitronixInstance = attachedServices.getKey();
         setDaemon(true);
-        setName("bitronix-task-scheduler");
+        setName("bitronix-task-scheduler_" + bitronixInstance);
 
         SortedSet<Task> tasks;
         Lock tasksLock;
@@ -159,8 +165,10 @@ public class TaskScheduler extends Thread implements Service {
             throw new IllegalArgumentException("expected a non-null recoverer");
         if (executionTime == null)
             throw new IllegalArgumentException("expected a non-null execution date");
-
-        RecoveryTask task = new RecoveryTask(recoverer, executionTime, this);
+        ServicesInstance attachedServices = TransactionManagerServices.getAttachedServices();
+        if (attachedServices == null)
+            throw new IllegalStateException(String.format("Thread %s is not attached to bitronix services", Thread.currentThread().getName()));
+        RecoveryTask task = new RecoveryTask(recoverer, attachedServices.getKey(), executionTime, this);
         addTask(task);
         if (log.isDebugEnabled()) { log.debug("scheduled " + task + ", total task(s) queued: " + countTasksQueued()); }
     }
@@ -242,6 +250,7 @@ public class TaskScheduler extends Thread implements Service {
     }
 
     public void run() {
+        TransactionManagerServices.attachToServices(bitronixInstance);
         while (isActive()) {
             try {
                 executeElapsedTasks();

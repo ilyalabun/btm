@@ -41,7 +41,7 @@ public class TransactionManagerServices {
 
     private final static Logger log = LoggerFactory.getLogger(TransactionManagerServices.class);
 
-    private static final String DEFAULT_KEY = "DEFAULT_KEY";
+    public static final String DEFAULT_KEY = "DEFAULT_KEY";
 
     private static final Object MAPS_LOCK = new Object();
 
@@ -67,6 +67,17 @@ public class TransactionManagerServices {
         servicesInstances.set(instance);
         log.info(String.format("Thread %s is attached to Bitronix instance %s", Thread.currentThread().getName(), key));
         return instance;
+    }
+
+    public static void detachFromServices() {
+        ServicesInstance instance = servicesInstances.get();
+        if (instance == null) {
+            log.warn(String.format("Thread %s is trying to detach from Bitronix services while it's not attached at all",
+                    Thread.currentThread().getName()));
+            return;
+        }
+        servicesInstances.remove();
+        log.info(String.format("Thread %s is detached from Bitronix instance %s", Thread.currentThread().getName(), instance.getKey()));
     }
 
     public static Enumeration<String> getAllInstancesKeys() {
@@ -180,8 +191,10 @@ public class TransactionManagerServices {
      * Clear services references. Called at the end of the shutdown procedure.
      */
     protected static void clear() {
-        for (ServicesInstance instance: key2services.values()) {
-            instance.clear();
-        }
+        ServicesInstance attachedServices = getAttachedServices();
+        if (attachedServices != null)
+            attachedServices.clear();
+        else
+            log.warn(String.format("Thread %s is trying to clear services while it's not attached to any", Thread.currentThread().getName()));
     }
 }
