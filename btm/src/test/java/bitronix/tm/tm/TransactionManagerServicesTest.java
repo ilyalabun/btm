@@ -20,13 +20,15 @@ public class TransactionManagerServicesTest {
 
         Thread thread1 = new Thread() {
             public void run() {
-                instance1[0] = TransactionManagerServices.attachToServices(KEY1);
+                TransactionManagerServices.attachToServices(KEY1);
+                instance1[0] = TransactionManagerServices.getAttachedServices();
             }
         };
 
         Thread thread2 = new Thread() {
             public void run() {
-                instance2[0] = TransactionManagerServices.attachToServices(KEY2);
+                TransactionManagerServices.attachToServices(KEY2);
+                instance2[0] = TransactionManagerServices.getAttachedServices();
             }
         };
 
@@ -50,13 +52,15 @@ public class TransactionManagerServicesTest {
 
         Thread thread1 = new Thread() {
             public void run() {
-                instance1[0] = TransactionManagerServices.attachToServices(KEY1);
+                TransactionManagerServices.attachToServices(KEY1);
+                instance1[0] = TransactionManagerServices.getAttachedServices();
             }
         };
 
         Thread thread2 = new Thread() {
             public void run() {
-                instance2[0] = TransactionManagerServices.attachToServices(KEY1);
+                TransactionManagerServices.attachToServices(KEY1);
+                instance2[0] = TransactionManagerServices.getAttachedServices();
             }
         };
 
