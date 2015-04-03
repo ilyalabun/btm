@@ -15,6 +15,7 @@
  */
 package bitronix.tm.twopc;
 
+import bitronix.tm.BitronixTransaction;
 import bitronix.tm.TransactionManagerServices;
 import bitronix.tm.internal.XAResourceHolderState;
 import bitronix.tm.internal.XAResourceManager;
@@ -44,8 +45,11 @@ public abstract class AbstractPhaseEngine {
 
     private final Executor executor;
 
-    protected AbstractPhaseEngine(Executor executor) {
+    private final BitronixTransaction trx;
+
+    protected AbstractPhaseEngine(Executor executor, BitronixTransaction trx) {
         this.executor = executor;
+        this.trx = trx;
     }
 
     /**
@@ -198,6 +202,10 @@ public abstract class AbstractPhaseEngine {
         }
 
         return result;
+    }
+
+    public BitronixTransaction getTransaction() {
+        return trx;
     }
 
     private final static class JobsExecutionReport {

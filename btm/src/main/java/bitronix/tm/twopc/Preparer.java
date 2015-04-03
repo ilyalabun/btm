@@ -16,6 +16,7 @@
 package bitronix.tm.twopc;
 
 import bitronix.tm.BitronixTransaction;
+import bitronix.tm.StatisticsCollector;
 import bitronix.tm.TransactionManagerServices;
 import bitronix.tm.internal.BitronixRollbackException;
 import bitronix.tm.internal.BitronixSystemException;
@@ -24,6 +25,7 @@ import bitronix.tm.internal.XAResourceManager;
 import bitronix.tm.twopc.executor.Executor;
 import bitronix.tm.twopc.executor.Job;
 import bitronix.tm.utils.Decoder;
+import org.apache.felix.bundlerepository.impl.SystemRepositoryImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,8 +49,8 @@ public final class Preparer extends AbstractPhaseEngine {
     // this list has to be thread-safe as the PrepareJobs can be executed in parallel (when async 2PC is configured)
     private final List<XAResourceHolderState> preparedResources = Collections.synchronizedList(new ArrayList<XAResourceHolderState>());
 
-    public Preparer(Executor executor) {
-        super(executor);
+    public Preparer(Executor executor, BitronixTransaction trx) {
+        super(executor, trx);
     }
 
     /**
@@ -60,6 +62,9 @@ public final class Preparer extends AbstractPhaseEngine {
      * @throws bitronix.tm.internal.BitronixSystemException when an internal error occured.
      */
     public List<XAResourceHolderState> prepare(BitronixTransaction transaction) throws RollbackException, BitronixSystemException {
+        final long startTime = System.nanoTime();
+        final StatisticsCollector statsCollector = TransactionManagerServices.getConfiguration().getStatsCollector();
+
         XAResourceManager resourceManager = transaction.getResourceManager();
         transaction.setStatus(Status.STATUS_PREPARING);
         preparedResources.clear();
@@ -70,6 +75,8 @@ public final class Preparer extends AbstractPhaseEngine {
             else
                 if (log.isDebugEnabled()) { log.debug("0 resource enlisted, no prepare needed"); }
 
+            statsCollector.onTransactionPrepare(
+                    getTransaction().getGtrid(), System.nanoTime() - startTime, resourceManager.getAllResources(), true);
             transaction.setStatus(Status.STATUS_PREPARED);
             return preparedResources;
         }
@@ -79,8 +86,13 @@ public final class Preparer extends AbstractPhaseEngine {
             XAResourceHolderState resourceHolder = resourceManager.getAllResources().get(0);
 
             preparedResources.add(resourceHolder);
-            if (log.isDebugEnabled()) { log.debug("1 resource enlisted, no prepare needed (1PC)"); }
+            if (log.isDebugEnabled()) {
+                log.debug("1 resource enlisted, no prepare needed (1PC)");
+            }
+
             transaction.setStatus(Status.STATUS_PREPARED);
+            statsCollector.onTransactionPrepare(
+                    getTransaction().getGtrid(), System.nanoTime() - startTime, resourceManager.getAllResources(), true);
             return preparedResources;
         }
 
@@ -93,6 +105,13 @@ public final class Preparer extends AbstractPhaseEngine {
 
         transaction.setStatus(Status.STATUS_PREPARED);
         if (log.isDebugEnabled()) { log.debug("successfully prepared " + preparedResources.size() + " resource(s)"); }
+
+        statsCollector.onTransactionPrepare(
+                getTransaction().getGtrid(),
+                System.nanoTime() - startTime,
+                transaction.getResourceManager().getAllResources(),
+                false);
+
         return Collections.unmodifiableList(preparedResources);
     }
 
@@ -148,6 +167,8 @@ public final class Preparer extends AbstractPhaseEngine {
 
         public void execute() {
             try {
+                final long startTime = System.nanoTime();
+
                 XAResourceHolderState resourceHolder = getResource();
                 if (log.isDebugEnabled()) { log.debug("preparing resource " + resourceHolder); }
 
@@ -157,6 +178,14 @@ public final class Preparer extends AbstractPhaseEngine {
                 }
 
                 if (log.isDebugEnabled()) { log.debug("prepared resource " + resourceHolder + " voted " + Decoder.decodePrepareVote(vote)); }
+
+                final StatisticsCollector statsCollector = TransactionManagerServices.getConfiguration().getStatsCollector();
+                statsCollector.onResourcePrepare(
+                        getTransaction().getGtrid(),
+                        System.nanoTime() - startTime,
+                        getResource(),
+                        Decoder.decodeStatus(vote));
+
             } catch (RuntimeException ex) {
                 runtimeException = ex;
             } catch (XAException ex) {

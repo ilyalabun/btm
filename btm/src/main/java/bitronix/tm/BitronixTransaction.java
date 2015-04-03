@@ -82,9 +82,9 @@ public class BitronixTransaction implements Transaction, BitronixTransactionMBea
     private final Executor executor = TransactionManagerServices.getExecutor();
     private final TaskScheduler taskScheduler = TransactionManagerServices.getTaskScheduler();
 
-    private final Preparer preparer = new Preparer(executor);
-    private final Committer committer = new Committer(executor);
-    private final Rollbacker rollbacker = new Rollbacker(executor);
+    private final Preparer preparer = new Preparer(executor, this);
+    private final Committer committer = new Committer(executor, this);
+    private final Rollbacker rollbacker = new Rollbacker(executor, this);
 
     /* management */
     private volatile String threadName;

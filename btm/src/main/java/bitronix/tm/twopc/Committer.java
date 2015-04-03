@@ -16,6 +16,7 @@
 package bitronix.tm.twopc;
 
 import bitronix.tm.BitronixTransaction;
+import bitronix.tm.StatisticsCollector;
 import bitronix.tm.TransactionManagerServices;
 import bitronix.tm.internal.BitronixHeuristicMixedException;
 import bitronix.tm.internal.BitronixHeuristicRollbackException;
@@ -55,8 +56,8 @@ public final class Committer extends AbstractPhaseEngine {
     private final List<XAResourceHolderState> committedResources = Collections.synchronizedList(new ArrayList<XAResourceHolderState>());
 
 
-    public Committer(Executor executor) {
-       super(executor);
+    public Committer(Executor executor, BitronixTransaction transaction) {
+       super(executor, transaction);
     }
 
     /**
@@ -69,6 +70,7 @@ public final class Committer extends AbstractPhaseEngine {
      * @throws bitronix.tm.internal.BitronixRollbackException during 1PC when resource fails to commit
      */
     public void commit(BitronixTransaction transaction, List<XAResourceHolderState> interestedResources) throws HeuristicMixedException, HeuristicRollbackException, BitronixSystemException, BitronixRollbackException {
+        final long starTime = System.nanoTime();
         XAResourceManager resourceManager = transaction.getResourceManager();
         if (resourceManager.size() == 0) {
             transaction.setStatus(Status.STATUS_COMMITTING); //TODO: there is a disk force here that could be avoided
@@ -117,6 +119,9 @@ public final class Committer extends AbstractPhaseEngine {
         }
 
         transaction.setStatus(Status.STATUS_COMMITTED, committedAndNotInterestedUniqueNames);
+        final long duration = System.nanoTime() - starTime;
+        final StatisticsCollector statsCollector = TransactionManagerServices.getConfiguration().getStatsCollector();
+        statsCollector.onTransactionCommit(transaction.getGtrid(), duration, interestedResources, notInterestedResources);
     }
 
     private void throwException(String message, PhaseException phaseException, int totalResourceCount) throws HeuristicMixedException, HeuristicRollbackException {
@@ -188,8 +193,12 @@ public final class Committer extends AbstractPhaseEngine {
         }
 
         public void execute() {
+            final long startTime = System.nanoTime();
             try {
                 commitResource(getResource(), onePhase);
+                final long duration = System.nanoTime() - startTime;
+                final StatisticsCollector statsCollector = TransactionManagerServices.getConfiguration().getStatsCollector();
+                statsCollector.onResourceCommit(getTransaction().getGtrid(), duration, getResource());
             } catch (RuntimeException ex) {
                 runtimeException = ex;
             } catch (XAException ex) {

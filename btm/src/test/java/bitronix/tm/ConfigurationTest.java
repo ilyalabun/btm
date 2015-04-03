@@ -108,7 +108,7 @@ public class ConfigurationTest extends TestCase {
                 " secondaryDiskConfiguration.forcedWriteEnabled=true, secondaryDiskConfiguration.logPart1Filename=btm3.tlog," +
                 " secondaryDiskConfiguration.logPart2Filename=btm4.tlog, secondaryDiskConfiguration.maxLogSizeInMb=2," +
                 " secondaryDiskConfiguration.skipCorruptedLogs=false, secondaryJournal=disk," +
-                " serverId=null, synchronousJmxRegistration=false," +
+                " serverId=null, statsCollector=Void statistics collector, synchronousJmxRegistration=false," +
                 " warnAboutZeroResourceTransaction=true]";
 
         assertEquals(expectation, new Configuration().toString());

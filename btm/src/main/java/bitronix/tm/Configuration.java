@@ -76,6 +76,7 @@ public class Configuration implements Service {
     private volatile String resourceConfigurationFilename;
     private volatile boolean conservativeJournaling;
     private volatile String jdbcProxyFactoryClass;
+    private volatile StatisticsCollector statsCollector = StatisticsCollector.VOID;
 
     protected Configuration() {
         try {
@@ -411,6 +412,14 @@ public class Configuration implements Service {
         ConfigurationUtils.checkNotStarted();
         this.jndiTransactionSynchronizationRegistryName = jndiTransactionSynchronizationRegistryName;
         return this;
+    }
+
+    public StatisticsCollector getStatsCollector() {
+        return statsCollector;
+    }
+
+    public void setStatsCollector(StatisticsCollector statsCollector) {
+        this.statsCollector = statsCollector;
     }
 
     /**

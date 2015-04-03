@@ -51,8 +51,8 @@ public final class Rollbacker extends AbstractPhaseEngine {
     // this list has to be thread-safe as the RollbackJobs can be executed in parallel (when async 2PC is configured)
     private final List<XAResourceHolderState> rolledbackResources = Collections.synchronizedList(new ArrayList<XAResourceHolderState>());
 
-    public Rollbacker(Executor executor) {
-        super(executor);
+    public Rollbacker(Executor executor, BitronixTransaction trx) {
+        super(executor, trx);
     }
 
     /**
