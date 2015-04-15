@@ -81,10 +81,16 @@ public class XAPool implements StateChangeListener {
     private final Object xaFactory;
     private final AtomicBoolean failed = new AtomicBoolean();
     private final Object poolGrowthShrinkLock = new Object();
+    private final PoolStatisticsCollector statsCollector;
 
     public XAPool(XAResourceProducer xaResourceProducer, ResourceBean bean, Object xaFactory) throws Exception {
+        this(xaResourceProducer, bean, xaFactory, PoolStatisticsCollector.VOID);
+    }
+
+    public XAPool(XAResourceProducer xaResourceProducer, ResourceBean bean, Object xaFactory, PoolStatisticsCollector statsCollector) throws Exception {
         this.xaResourceProducer = xaResourceProducer;
         this.bean = bean;
+        this.statsCollector = statsCollector;
         if (bean.getMaxPoolSize() < 1 || bean.getMinPoolSize() > bean.getMaxPoolSize())
             throw new IllegalArgumentException("cannot create a pool with min " + bean.getMinPoolSize() + " connection(s) and max " + bean.getMaxPoolSize() + " connection(s)");
         if (bean.getAcquireIncrement() < 1)
@@ -135,6 +141,7 @@ public class XAPool implements StateChangeListener {
                 failed.set(false);
             }
             finally {
+                logConnectionNumberChanged();
                 stateTransitionLock.writeLock().unlock();
             }
         }
@@ -158,6 +165,8 @@ public class XAPool implements StateChangeListener {
      * @throws Exception throw in the pool is unrecoverable or a timeout occurs getting a connection
      */
     public Object getConnectionHandle(boolean recycle) throws Exception {
+        final long acquireStartTime = System.nanoTime();
+
         synchronized (poolGrowthShrinkLock) {
             if (isFailed()) {
                 reinitializePool();
@@ -191,6 +200,7 @@ public class XAPool implements StateChangeListener {
                     putSharedXAStatefulHolder(xaStatefulHolder);
                 }
 
+                statsCollector.onConnectionAcquired(bean.getUniqueName(), System.nanoTime() - acquireStartTime);
                 return connectionHandle;
             } catch (Exception ex) {
             	if (log.isDebugEnabled()) { log.debug("connection is invalid, trying to close it", ex); }
@@ -239,8 +249,9 @@ public class XAPool implements StateChangeListener {
         try {
             switch (currentState) {
             case XAStatefulHolder.STATE_IN_POOL:
-            	// no-op.  calling availablePool.remove(source) here is reduncant because it was
+            	// no-op, just logging.  calling availablePool.remove(source) here is reduncant because it was
             	// already removed when availablePool.poll() was called.
+                statsCollector.onConnectionReleased(bean.getUniqueName(), System.nanoTime() - source.getLastAcquireTimeNs());
                 break;
             case XAStatefulHolder.STATE_ACCESSIBLE:
                 if (log.isDebugEnabled()) { log.debug("removed " + source + " from the accessible pool"); }
@@ -280,10 +291,21 @@ public class XAPool implements StateChangeListener {
                 poolSize.decrementAndGet();
         		break;
         	}
+
+            logConnectionNumberChanged();
         }
         finally {
             stateTransitionLock.writeLock().unlock();
         }
+    }
+
+    private void logConnectionNumberChanged() {
+        statsCollector.onConnectionsNumberChanged(
+                bean.getUniqueName(),
+                poolSize.get(),
+                availablePool.size(),
+                accessiblePool.size(),
+                inaccessiblePool.size());
     }
 
     /* ------------------------------------------------------------------------
@@ -469,6 +491,7 @@ public class XAPool implements StateChangeListener {
         xaStatefulHolder.addStateChangeEventListener(this);
         availablePool.add(xaStatefulHolder);
         poolSize.incrementAndGet();
+        logConnectionNumberChanged();
     }
 
     /* ------------------------------------------------------------------------
@@ -535,8 +558,10 @@ public class XAPool implements StateChangeListener {
             } catch (Exception ex) {
                 log.warn("error closing " + xaStatefulHolder, ex);
             }
+            logConnectionNumberChanged();
             return true;
         }
+        logConnectionNumberChanged();
         return false;
     }
 

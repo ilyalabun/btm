@@ -32,6 +32,7 @@ public abstract class AbstractXAStatefulHolder implements XAStatefulHolder {
 
     private final static Logger log = LoggerFactory.getLogger(AbstractXAStatefulHolder.class);
 
+    private volatile long lastAcquireTime = 0;
     private volatile int state = STATE_IN_POOL;
     private final List<StateChangeListener> stateChangeEventListeners = new CopyOnWriteArrayList<StateChangeListener>();
     private final Date creationDate = new Date();
@@ -56,8 +57,10 @@ public abstract class AbstractXAStatefulHolder implements XAStatefulHolder {
                 " to " + Decoder.decodeXAStatefulHolderState(state) + " in " + this);
 
         this.state = state;
-
         fireStateChanged(oldState, state);
+        if (oldState == STATE_IN_POOL) {
+            lastAcquireTime = System.nanoTime();
+        }
     }
 
     public void addStateChangeEventListener(StateChangeListener listener) {
@@ -66,6 +69,10 @@ public abstract class AbstractXAStatefulHolder implements XAStatefulHolder {
 
     public void removeStateChangeEventListener(StateChangeListener listener) {
         stateChangeEventListeners.remove(listener);
+    }
+
+    public long getLastAcquireTimeNs() {
+        return lastAcquireTime;
     }
 
     private void fireStateChanging(int currentState, int futureState) {

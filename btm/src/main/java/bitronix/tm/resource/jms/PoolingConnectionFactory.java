@@ -20,12 +20,7 @@ import bitronix.tm.recovery.RecoveryException;
 import bitronix.tm.resource.ResourceConfigurationException;
 import bitronix.tm.resource.ResourceObjectFactory;
 import bitronix.tm.resource.ResourceRegistrar;
-import bitronix.tm.resource.common.RecoveryXAResourceHolder;
-import bitronix.tm.resource.common.ResourceBean;
-import bitronix.tm.resource.common.XAPool;
-import bitronix.tm.resource.common.XAResourceHolder;
-import bitronix.tm.resource.common.XAResourceProducer;
-import bitronix.tm.resource.common.XAStatefulHolder;
+import bitronix.tm.resource.common.*;
 import bitronix.tm.utils.ManagementRegistrar;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,9 +59,16 @@ public class PoolingConnectionFactory extends ResourceBean implements Connection
     private volatile String password;
     private volatile JmsConnectionHandle recoveryConnectionHandle;
     private volatile String jmxName;
+    private final transient PoolStatisticsCollector statsCollector;
 
     public PoolingConnectionFactory() {
         xaStatefulHolders = new CopyOnWriteArrayList<JmsPooledConnection>();
+        this.statsCollector = PoolStatisticsCollector.VOID;
+    }
+
+    public PoolingConnectionFactory(PoolStatisticsCollector statsCollector) {
+        xaStatefulHolders = new CopyOnWriteArrayList<JmsPooledConnection>();
+        this.statsCollector = statsCollector;
     }
 
     /**
@@ -140,7 +142,7 @@ public class PoolingConnectionFactory extends ResourceBean implements Connection
             return;
 
         if (log.isDebugEnabled()) { log.debug("building JMS XA pool for " + getUniqueName() + " with " + getMinPoolSize() + " connection(s)"); }
-        pool = new XAPool(this, this, xaConnectionFactory);
+        pool = new XAPool(this, this, xaConnectionFactory, statsCollector);
         boolean builtXaFactory = false;
         if (this.xaConnectionFactory == null) {
             this.xaConnectionFactory = (XAConnectionFactory) pool.getXAFactory();

@@ -20,12 +20,7 @@ import bitronix.tm.recovery.RecoveryException;
 import bitronix.tm.resource.ResourceConfigurationException;
 import bitronix.tm.resource.ResourceObjectFactory;
 import bitronix.tm.resource.ResourceRegistrar;
-import bitronix.tm.resource.common.RecoveryXAResourceHolder;
-import bitronix.tm.resource.common.ResourceBean;
-import bitronix.tm.resource.common.XAPool;
-import bitronix.tm.resource.common.XAResourceHolder;
-import bitronix.tm.resource.common.XAResourceProducer;
-import bitronix.tm.resource.common.XAStatefulHolder;
+import bitronix.tm.resource.common.*;
 import bitronix.tm.utils.ManagementRegistrar;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,9 +65,16 @@ public class PoolingDataSource extends ResourceBean implements DataSource, XARes
     private volatile String localAutoCommit;
     private volatile String jmxName;
     private final List<ConnectionCustomizer> connectionCustomizers = new CopyOnWriteArrayList<ConnectionCustomizer>();
+    private final transient PoolStatisticsCollector statsCollector;
 
     public PoolingDataSource() {
         xaResourceHolderMap = new ConcurrentHashMap<XAResource, XAResourceHolder>();
+        this.statsCollector = PoolStatisticsCollector.VOID;
+    }
+
+    public PoolingDataSource(PoolStatisticsCollector statsCollector) {
+        xaResourceHolderMap = new ConcurrentHashMap<XAResource, XAResourceHolder>();
+        this.statsCollector = statsCollector;
     }
 
     /**
@@ -96,7 +98,7 @@ public class PoolingDataSource extends ResourceBean implements DataSource, XARes
             return;
 
         if (log.isDebugEnabled()) { log.debug("building XA pool for " + getUniqueName() + " with " + getMinPoolSize() + " connection(s)"); }
-        pool = new XAPool(this, this, xaDataSource);
+        pool = new XAPool(this, this, xaDataSource, statsCollector);
         boolean builtXaFactory = false;
         if (xaDataSource == null) {
             xaDataSource = (XADataSource) pool.getXAFactory();
