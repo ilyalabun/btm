@@ -88,7 +88,9 @@ public class BitronixTransactionManager implements TransactionManager, UserTrans
             Configuration configuration = TransactionManagerServices.getConfiguration();
             configuration.buildServerIdArray(); // first call will initialize the ServerId
 
-            if (log.isDebugEnabled()) { log.debug("starting BitronixTransactionManager using " + configuration); }
+            @SuppressWarnings("ThrowableInstanceNeverThrown")
+            final Throwable stackTrace = new Throwable();
+            log.info("starting BitronixTransactionManager using " + configuration, stackTrace);
             TransactionManagerServices.getJournal().open();
             TransactionManagerServices.getResourceLoader().init();
             TransactionManagerServices.getRecoverer().run();
