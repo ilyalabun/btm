@@ -48,7 +48,13 @@ public class TransactionManagerServices {
     private static ConcurrentHashMap<String, ServicesInstance> key2services = new ConcurrentHashMap<String, ServicesInstance>();
     private static ThreadLocal<ServicesInstance> servicesInstances = new ThreadLocal<ServicesInstance>();
 
-    public static ServicesInstance attachToServices(String key) {
+    /**
+     * Attaches thread to particular btm instance.
+     *
+     * @param key unique id of btm instance
+     * @return true if thread has already been attached to provided btm instance, false otherwise.
+     */
+    public static boolean attachToServices(String key) {
         final ServicesInstance currentInstance = servicesInstances.get();
         if (currentInstance != null) {
             log.warn(String.format("Thread %s is trying to attach itself to services twice. Key=%s", Thread.currentThread().getName(), key));
@@ -58,7 +64,7 @@ public class TransactionManagerServices {
 
             }
 
-            return currentInstance;
+            return false;
         }
 
         final ServicesInstance newInstance = new ServicesInstance(key);
@@ -66,7 +72,7 @@ public class TransactionManagerServices {
         final ServicesInstance instance = oldInstance == null ? newInstance : oldInstance;
         servicesInstances.set(instance);
         log.info(String.format("Thread %s is attached to Bitronix instance %s", Thread.currentThread().getName(), key));
-        return instance;
+        return true;
     }
 
     public static void detachFromServices() {
@@ -94,8 +100,10 @@ public class TransactionManagerServices {
 
     public static ServicesInstance getAttachedServicesOrDefault() {
         final ServicesInstance attachedServices = getAttachedServices();
-        if (attachedServices == null)
-            return attachToServices(DEFAULT_KEY);
+        if (attachedServices == null) {
+            attachToServices(DEFAULT_KEY);
+            return getAttachedServices();
+        }
         return attachedServices;
     }
 
